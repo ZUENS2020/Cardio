@@ -101,12 +101,14 @@ gantt
 
 **原则：所有后续模块开发直接用 LOG_X 埋点，不再用 Serial.println**
 
-- [ ] `Logger`：全局单例，宏接口 `LOG_D/I/W/E(tag, fmt, ...)`
+- [x] `Logger`：全局单例，宏接口 `LOG_D/I/W/E(tag, fmt, ...)`
   - Serial 实时输出（USB CDC 115200）
   - SD 卡写入 `/Cardio/logs/cardio.log`，超 512KB 自动轮转（保留 3 个文件）
   - 日志格式：`[000123456][INFO ][AUDIO] Playing: 稻香.flac`
   - 运行时级别过滤，`debug_enabled=false` 时关闭 SD 写入仅保留 Serial
-- [ ] `DebugConsole`（Serial 通道）：主循环轮询 `Serial.readStringUntil('\n')`，启动时打印命令列表
+- [x] `DebugConsole`（Serial 通道）：主循环非阻塞轮询，启动时打印命令列表，命令注册表供后续模块扩充
+
+> ⚠️ Day1 代码已 `pio run` 通过，实机烧录待设备接入。`Cardio.ino` 中 SD SPI 引脚为原版 Cardputer 占位值，Day2 需用 ADV 实机确认。
 
 **此阶段可用命令（随模块增加逐步扩充）：**
 ```
