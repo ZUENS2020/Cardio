@@ -244,6 +244,11 @@ mqtt_pass=yourpassword
 notify_enabled=true
 rss_enabled=true
 
+# 调试
+debug_enabled=false   # true 时启用调试控制台（Serial + BLE NUS）
+debug_ble=false       # true 时额外开启 BLE NUS 通道（需 debug_enabled=true）
+log_level=info        # debug | info | warn | error
+
 # 播放器
 default_volume=15
 default_order=sequential
