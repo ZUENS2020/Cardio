@@ -9,6 +9,7 @@
 
 #include "Logger.h"
 #include "DebugConsole.h"
+#include "Config.h"
 
 // ── SD 卡 SPI 引脚 ────────────────────────────────────────────────────────
 // 已核对 ADV 官方 docs 与参考仓库（见 BRINGUP.md），与原版 Cardputer 一致。
@@ -17,10 +18,6 @@ static constexpr int SD_SCK  = 40;
 static constexpr int SD_MISO = 39;
 static constexpr int SD_MOSI = 14;
 static constexpr int SD_CS   = 12;
-
-// Day1 暂用编译期默认值，Day2 接入 Config 后改为读 config.txt
-static constexpr bool          DEBUG_ENABLED = true;
-static constexpr Logger::Level LOG_LEVEL     = Logger::DEBUG;
 
 static bool mountSD() {
     SPI.begin(SD_SCK, SD_MISO, SD_MOSI, SD_CS);
@@ -44,9 +41,17 @@ void setup() {
 
     bool sdOk = mountSD();
 
-    Logger::instance().begin(DEBUG_ENABLED && sdOk, LOG_LEVEL);
+    // Logger 先以 INFO + SD 启动，好让 Config 解析过程能落日志
+    Logger::instance().begin(sdOk, Logger::INFO);
     LOG_I("BOOT", "Cardio firmware boot, sd=%s", sdOk ? "ok" : "none");
 
+    // 读 config.txt，再把级别 / SD 写入开关应用到 Logger
+    Config& cfg = Config::instance();
+    cfg.begin();
+    Logger::instance().setLevel(cfg.logLevel());
+    Logger::instance().setSdEnabled(cfg.debugEnabled() && sdOk);
+
+    cfg.registerConsole();          // 在 begin() 打印命令列表前注册，使其出现在 help 中
     DebugConsole::instance().begin();
 }
 
