@@ -293,6 +293,111 @@ ingress:
 
 ---
 
+## 调试控制台与日志系统
+
+### Logger
+
+全局单例，所有模块统一使用宏接口：
+
+```cpp
+LOG_D("AUDIO", "Buffer: %d/%d", used, total);   // DEBUG
+LOG_I("WIFI",  "Connected: %s", ssid);           // INFO
+LOG_W("MQTT",  "Reconnecting, attempt %d", n);   // WARN
+LOG_E("RSS",   "Parse failed: %s", url);         // ERROR
+```
+
+输出格式：
+```
+[000123456][INFO ][WIFI ] Connected: MyNetwork
+[000125210][ERROR][MQTT ] Connect timeout
+```
+
+| 输出目标 | 条件 |
+|----------|------|
+| Serial（USB CDC 115200） | 始终输出（`debug_enabled` 无关） |
+| SD `/Cardio/logs/cardio.log` | `debug_enabled=true` 时写入 |
+| BLE NUS TX | `debug_ble=true` 且已连接时推送 |
+
+日志文件超 512KB 自动轮转：`cardio.log` → `cardio.log.1` → `cardio.log.2`（保留 3 个）。
+
+---
+
+### DebugConsole
+
+```mermaid
+graph LR
+    USB[USB Serial\n115200] --> DC[DebugConsole\n命令解析分发]
+    BLE[BLE NUS RX\n6E400002] --> DC
+    DC --> AE[AudioEngine]
+    DC --> PC[PlaybackController]
+    DC --> WM[WiFiManager]
+    DC --> MQ[MqttClient]
+    DC --> NM[NotifyManager]
+    DC --> RS[RssSource]
+    DC --> CFG[Config]
+    DC --> UI[UI Layer]
+    DC --> LOG[Logger]
+    DC --> OUT[输出\nSerial + BLE NUS TX]
+```
+
+**`debug_enabled=false` 时 DebugConsole 完全不初始化，零开销。**
+
+**完整命令集：**
+
+```
+── 播放 ──────────────────────────────────
+play <路径>              播放指定文件
+pause / resume           暂停 / 恢复
+stop                     停止
+next / prev              切曲
+volume <0-21>            音量
+seek <秒>                跳转
+status                   当前播放状态
+
+── 播放列表 ──────────────────────────────
+list                     列出所有播放列表
+playlist <名称>          切换播放列表
+tracks                   列出当前列表曲目
+order <模式>             切换播放顺序
+
+── 网络 ──────────────────────────────────
+wifi status              连接状态
+wifi connect             强制重连
+mqtt status              MQTT 状态
+mqtt pub <topic> <内容>  发布测试消息
+
+── 通知模拟 ──────────────────────────────
+notify <来源> <内容>     模拟普通通知
+call <姓名>              模拟来电
+
+── RSS ───────────────────────────────────
+rss refresh              强制刷新所有源
+rss list                 列出已拉取节目
+
+── 日志 ──────────────────────────────────
+log level <级别>         设置日志级别
+log dump                 输出日志文件全部内容
+log clear                清空日志文件
+
+── 系统 ──────────────────────────────────
+heap                     SRAM / PSRAM 剩余
+battery                  电池电压和百分比
+jack                     3.5mm 插拔状态
+config get <key>         读取配置项
+config set <key> <val>   修改配置项（写回 NVS）
+ui <screen>              强制切换界面
+screen <on|off>          屏幕开关
+reboot                   重启
+```
+
+**BLE 连接方式：**
+- 设备开启后广播名 `Cardio-Debug`
+- 电脑 / 手机用 nRF Connect 或 Serial Bluetooth Terminal 连接
+- 找到 NUS Service（`6E400001-...`），打开 TX Notify + RX Write
+- 直接发文本命令，回复从 TX 推送过来
+
+---
+
 ## 依赖库
 
 | 库 | 用途 | 阶段 |
