@@ -71,26 +71,26 @@ gantt
     axisFormat  %m/%d
 
     section Week 1 固件核心
-    Logger + DebugConsole（Serial）      :w1a0, 2026-06-01, 1d
+    Logger + DebugConsole（Serial）      :w1a0, 2026-05-31, 1d
     Config + AudioEngine + JackMonitor   :w1a, after w1a0, 2d
     Playlist + LocalSource + PlayOrder   :w1b, after w1a, 2d
     PlayerScreen + BrowserScreen         :w1c, after w1b, 1d
     WiFiManager + BLE 回退流程           :w1d, after w1c, 2d
 
     section Week 1 服务端
-    服务端部署 Mosquitto + FastAPI        :s1, 2026-06-01, 2d
+    服务端部署 Mosquitto + FastAPI        :s1, 2026-05-31, 2d
     CF Tunnel 配置                       :s2, after s1, 1d
 
     section Week 2 网络功能
-    MqttClient WSS + NotifyManager       :w2a, 2026-06-08, 2d
+    MqttClient WSS + NotifyManager       :w2a, 2026-06-07, 2d
     RssSource + NotifyOverlay + CallScreen :w2b, after w2a, 2d
     BleProvisioner 固件端                :w2c, after w2a, 1d
 
     section Week 2 客户端
-    Android 核心（通知 + 上传 + BleWifiHelper） :a1, 2026-06-08, 4d
+    Android 核心（通知 + 上传 + BleWifiHelper） :a1, 2026-06-07, 4d
 
     section Week 2 收尾
-    集成测试 + SettingsScreen            :t1, 2026-06-13, 2d
+    集成测试 + SettingsScreen            :t1, 2026-06-12, 2d
 ```
 
 ---
