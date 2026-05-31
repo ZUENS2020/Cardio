@@ -11,8 +11,8 @@
 #include "DebugConsole.h"
 
 // ── SD 卡 SPI 引脚 ────────────────────────────────────────────────────────
-// TODO(Day2): 用 ADV 实机确认。下列为原版 Cardputer 引脚，ADV 可能不同。
-//             挂载失败时 Logger 自动降级为仅 Serial，不影响控制台调试。
+// 已核对 ADV 官方 docs 与参考仓库（见 BRINGUP.md），与原版 Cardputer 一致。
+// 挂载失败时 Logger 自动降级为仅 Serial，不影响控制台调试。
 static constexpr int SD_SCK  = 40;
 static constexpr int SD_MISO = 39;
 static constexpr int SD_MOSI = 14;
