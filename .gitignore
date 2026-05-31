@@ -11,8 +11,8 @@
 !.claude/settings.json
 
 # Firmware build
-firmware/.pio/
-firmware/build/
+**/.pio/
+**/build/
 *.bin
 *.elf
 
