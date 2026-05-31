@@ -182,7 +182,7 @@ cd Cardio/server
 # 本地启动（开发）
 cd api && pip install -r requirements.txt && uvicorn main:app --reload
 
-# Docker 部署（在服务器ssh nec上使用docker
+# Docker 部署（在服务器ssh nec上使用docker，本机无docker环境）
 docker-compose up -d
 
 # 查看日志
@@ -201,17 +201,14 @@ curl -X POST http://localhost:8000/notify \
 
 ## 客户端开发
 
-### Android
+### Android（本期）
 - Android Studio，Kotlin，目标 API 26+
 - 需要手动授予通知访问权限（Settings → Notification Access）
+- 详细设计见 [CLIENT_PLAN.md](Cardio/CLIENT_PLAN.md)
 
-### macOS
-- Xcode，Swift，关闭 Sandbox
-- 需要授予 Full Disk Access（读取 Notification Center SQLite DB）
-
-### Windows
-- Visual Studio 或 Rider，C# .NET 8，WPF
-- 发布：`dotnet publish -r win-x64 --self-contained -p:PublishSingleFile=true`
+### macOS / Windows（后续迭代，暂不开发）
+- macOS：Swift + NSStatusItem + SQLite 轮询 Notification Center DB
+- Windows：C# .NET 8 + WPF + WinRT UserNotificationListener
 
 ---
 

@@ -51,9 +51,9 @@
 | 固件 | C++ | ~2510 |
 | 服务端 | Python | ~170 |
 | Android 客户端 | Kotlin | ~1030 |
-| macOS 客户端 | Swift | ~600 |
-| Windows 客户端 | C# | ~530 |
-| **总计** | | **~4840 行** |
+| **总计** | | **~3710 行** |
+
+> macOS / Windows 客户端暂不开发，后续迭代再加。
 
 > 客户端详细计划见 [CLIENT_PLAN.md](CLIENT_PLAN.md)
 
@@ -86,9 +86,7 @@ gantt
     BleProvisioner 固件端                :w2c, after w2a, 1d
 
     section Week 2 客户端
-    Android 核心（通知 + 上传 + BleWifiHelper） :a1, 2026-06-08, 3d
-    macOS 客户端                         :m1, after a1, 2d
-    Windows 客户端                       :win1, after a1, 2d
+    Android 核心（通知 + 上传 + BleWifiHelper） :a1, 2026-06-08, 4d
 
     section Week 2 收尾
     集成测试 + SettingsScreen            :t1, 2026-06-13, 2d
@@ -175,7 +173,7 @@ notify <来源> <内容>    call <姓名>    ui <screen>
 rss refresh    rss list    screen <on|off>
 ```
 
-### Week 2 Day 1-3 — Android 客户端（可与固件并行）
+### Week 2 Day 1-4 — Android 客户端（可与固件并行）
 
 - [ ] NotificationListenerService + CallListener + SmsReceiver
 - [ ] FilterTable + Uploader（OkHttp，带重试）
@@ -183,12 +181,7 @@ rss refresh    rss list    screen <on|off>
 - [ ] WifiCredential：SSID→密码 DataStore，热点凭据缓存
 - [ ] 设置页：权限引导（一键跳转各权限设置页）、服务地址、WiFi 密码列表
 
-### Week 2 Day 4-5 — macOS + Windows 客户端
-
-- [ ] macOS：NSStatusItem + SQLite 轮询 + Uploader + SettingsView + 登录启动
-- [ ] Windows：NotifyIcon + UserNotificationListener + Uploader + SettingsWindow + 自启动
-
-### Week 2 Day 6-7 — 集成测试 + RSS
+### Week 2 Day 5-7 — 集成测试 + RSS
 
 - [ ] RssSource：HTTPClient 拉取 XML，解析 `<title>` / `<enclosure url=`
 - [ ] WiFiManager + RssSource 联调（rss_enabled 控制）
@@ -208,6 +201,8 @@ rss refresh    rss list    screen <on|off>
 | 省电息屏 + 低电警告 | 1d |
 | 自定义开屏图片 | 1d |
 | Splash Converter 工具 | 1d |
+| macOS 客户端 | 3d |
+| Windows 客户端 | 3d |
 | iOS 客户端（如有需要） | 5d |
 
 ---

@@ -194,7 +194,7 @@ sequenceDiagram
 
 ---
 
-## macOS 客户端
+## macOS 客户端（后续迭代）
 
 ### 技术栈
 
@@ -278,7 +278,7 @@ graph TB
 
 ---
 
-## Windows 客户端
+## Windows 客户端（后续迭代）
 
 ### 技术栈
 
@@ -355,34 +355,29 @@ graph TB
 
 ## 代码量汇总
 
-| 平台 | 语言 | 行数 |
-|---|---|---|
-| Android | Kotlin | ~1030 |
-| macOS | Swift | ~600 |
-| Windows | C# | ~530 |
-| **客户端合计** | | **~2160 行** |
+| 平台 | 语言 | 行数 | 状态 |
+|---|---|---|---|
+| Android | Kotlin | ~1030 | 本期开发 |
+| macOS | Swift | ~600 | 后续迭代 |
+| Windows | C# | ~530 | 后续迭代 |
+| **本期客户端** | | **~1030 行** | |
 
 ---
 
-## 整体项目代码量（更新）
+## 整体项目代码量
 
 | 部分 | 行数 |
 |---|---|
-| 固件 C++ | ~2200 |
+| 固件 C++ | ~2510 |
 | 服务端 Python | ~170 |
 | Android 客户端 Kotlin | ~1030 |
-| macOS 客户端 Swift | ~600 |
-| Windows 客户端 C# | ~530 |
-| **总计** | **~4530 行** |
+| **总计** | **~3710 行** |
 
 ---
 
 ## 开发顺序建议
 
-客户端开发集中在 Week 2，详见 [PLAN.md](PLAN.md) 甘特图。
+客户端开发集中在 Week 2 Day 1-4，详见 [PLAN.md](PLAN.md) 甘特图。
 
-- **Android**：Week 2 Day 1-3，优先，功能最全（含 BleWifiHelper）
-- **macOS**：Week 2 Day 4-5
-- **Windows**：Week 2 Day 4-5，与 macOS 并行
-
-三端共用同一个 FastAPI 接口，消息格式一致，互不依赖，macOS/Windows 可同时开发。
+- **Android**：本期唯一客户端，功能最全（通知 + BleWifiHelper）
+- **macOS / Windows**：设计文档已完成，后续迭代直接开工
