@@ -88,8 +88,8 @@ Cardputer ADV/
 推荐使用 **PlatformIO**（比 Arduino IDE 更适合多文件项目）：
 
 ```bash
-# 安装
-pip install platformio
+# 安装（macOS 用 pipx，不要用 pip/pip3）
+brew install pipx && pipx install platformio
 
 # 编译
 cd Cardio/firmware
@@ -182,7 +182,7 @@ cd Cardio/server
 # 本地启动（开发）
 cd api && pip install -r requirements.txt && uvicorn main:app --reload
 
-# Docker 部署
+# Docker 部署（在服务器ssh nec上使用docker
 docker-compose up -d
 
 # 查看日志
