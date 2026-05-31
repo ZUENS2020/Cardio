@@ -71,7 +71,8 @@ graph TB
         end
 
         subgraph Notify["通知系统（可选）"]
-            MC[MqttClient\nWSS over CF Tunnel]
+            BPS[BlePushService\nGATT PushRX Characteristic\nnotify_mode=ble]
+            MC[MqttClient\nWSS over CF Tunnel\nnotify_mode=wifi]
             NM[NotifyManager\n状态机 + 白名单]
         end
 
@@ -84,12 +85,13 @@ graph TB
         end
     end
 
-    CFG -->|开关配置| WIFI & PC & NM
+    CFG -->|notify_mode / rss_enabled| WIFI & PC & NM & BPS & MC
     WIFI -->|连接成功| MC & RS
     JM -->|插拔事件| PC
     LS & RS --> PL --> PC
     PC --> AE
-    MC --> NM
+    BPS -->|ble 模式| NM
+    MC -->|wifi 模式| NM
     NM -->|NOTIFY| NO
     NM -->|CALL| CS
     PC --> PS
@@ -241,8 +243,8 @@ mqtt_user=cardio
 mqtt_pass=yourpassword
 
 # 功能开关
-notify_enabled=true
-rss_enabled=true
+notify_mode=off       # off | ble | wifi（默认 off）
+rss_enabled=false     # false | true，仅 wifi 模式（默认 false）
 
 # 调试
 debug_enabled=false   # true 时启用调试控制台（Serial + BLE NUS）
@@ -290,6 +292,82 @@ ingress:
     service: ws://localhost:9001
   - service: http_status:404
 ```
+
+---
+
+## 通知推送渠道
+
+### 三种模式
+
+| `notify_mode` | 原理 | 依赖 | 适用场景 |
+|---|---|---|---|
+| `off` | 不接收任何推送 | 无 | 纯音乐播放 |
+| `ble` | 手机直连 BLE，写 GATT Characteristic | BLE（无需 WiFi） | 在家/近距离，无需服务器 |
+| `wifi` | MQTT over WSS → CF Tunnel / frp | WiFi + 服务端 | 远程推送，多平台 |
+
+两种模式互斥，启动时根据 `notify_mode` 初始化对应模块，另一个不启动。
+
+---
+
+### BLE 直连推送（notify_mode=ble）
+
+手机与设备配对后保持 BLE 连接，通知直接写入 GATT Characteristic，无需任何服务器。
+
+**GATT 服务布局（统一服务，合并推送和 WiFi 回退）：**
+
+```
+Service 0xFF00（Cardio Main Service）
+  ├── 0xFF01  SSID        WRITE           WiFi 凭据配网
+  ├── 0xFF02  Password    WRITE ENCRYPTED WiFi 凭据配网
+  ├── 0xFF03  DevStatus   NOTIFY          设备 → 手机
+  │           "req-wifi" | "req-hotspot" | "connected" | "failed"
+  ├── 0xFF04  PushRX      WRITE           手机 → 设备（通知 JSON）
+  └── 0xFF05  PushACK     NOTIFY          设备 → 手机（"ok" | "busy"）
+```
+
+**推送消息格式（与 MQTT 模式完全一致）：**
+
+```json
+{"source":"微信","content":"张三: 你在吗","priority":"normal","timestamp":1748000000}
+```
+
+**连接流程：**
+
+```mermaid
+sequenceDiagram
+    participant Phone as Android App
+    participant Card as Cardputer ADV
+
+    Phone->>Card: BLE 扫描，发现 "Cardio-XXXX"
+    Phone->>Card: 连接 + 配对（首次）
+    Phone->>Card: 订阅 0xFF03 DevStatus NOTIFY
+    Phone->>Card: 订阅 0xFF05 PushACK NOTIFY
+    Note over Phone,Card: 连接建立，保持后台常驻
+
+    Phone->>Card: WRITE 0xFF04 PushRX\n{"source":"微信","content":"..."}
+    Card-->>Phone: NOTIFY 0xFF05 PushACK "ok"
+    Card->>Card: NotifyManager 处理，显示 Overlay
+```
+
+**BLE 直连时 WiFi 回退复用同一连接：**
+`notify_mode=ble` 时手机已连接，WiFi 失败不需要重新广播等待，直接通过已有连接发送 `req-wifi` / `req-hotspot`（0xFF03 DevStatus）。
+
+---
+
+### WiFi 推送（notify_mode=wifi）
+
+沿用原有 MQTT over WSS 方案，详见"网络连接路径"章节。
+
+---
+
+### RSS
+
+| `rss_enabled` | 说明 |
+|---|---|
+| `false`（默认） | 不拉取 RSS |
+| `true` | WiFi 模式，定期 HTTP 拉取 RSS 源 |
+
+RSS 不支持 BLE 模式（数据量大，BLE 吞吐不足）。
 
 ---
 

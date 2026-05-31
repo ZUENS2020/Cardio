@@ -17,14 +17,15 @@
 | LocalSource | LocalSource.h/cpp | 120 | 扫描 /Cardio/music/，构建文件夹列表 |
 | RssSource | RssSource.h/cpp | 180 | HTTP 拉取，轻量 XML 解析（匹配 title/enclosure） |
 | WiFiManager | WiFiManager.h/cpp | 80 | 连接、重连、状态回调 |
-| MqttClient | MqttClient.h/cpp | 130 | WSS 连接，订阅 notify/#，心跳重连 |
-| NotifyManager | NotifyManager.h/cpp | 160 | 状态机，白名单过滤，优先级路由 |
+| BlePushService | BlePushService.h/cpp | 100 | GATT PushRX Characteristic，notify_mode=ble 时接收手机直推 |
+| MqttClient | MqttClient.h/cpp | 130 | WSS 连接，订阅 notify/#，心跳重连，notify_mode=wifi 时启用 |
+| NotifyManager | NotifyManager.h/cpp | 160 | 状态机，白名单过滤，BLE/WiFi 两路输入统一路由 |
 | PlayerScreen | PlayerScreen.h/cpp | 200 | 封面、歌名、进度条、状态图标 |
 | BrowserScreen | BrowserScreen.h/cpp | 180 | 列表/文件夹/RSS 统一浏览，光标导航 |
 | NotifyOverlay | NotifyOverlay.h/cpp | 80 | 顶部通知条，5s 计时淡出 |
 | CallScreen | CallScreen.h/cpp | 100 | 全屏来电，来源/内容显示，关闭按键 |
 | SettingsScreen | SettingsScreen.h/cpp | 150 | 运行时开关，写回 config.txt |
-| **固件合计** | | **~2510 行** | |
+| **固件合计** | | **~2610 行** | |
 
 ### 服务端
 
@@ -48,10 +49,10 @@
 
 | 部分 | 语言 | 行数 |
 |---|---|---|
-| 固件 | C++ | ~2510 |
-| 服务端 | Python | ~170 |
-| Android 客户端 | Kotlin | ~645 |
-| **总计** | | **~3325 行** |
+| 固件 | C++ | ~2610 |
+| 服务端 Python | ~170 | notify_mode=wifi 时才需要 |
+| Android 客户端 | Kotlin | ~765 |
+| **总计** | | **~3545 行** |
 
 > macOS / Windows 客户端暂不开发，后续迭代再加。
 
@@ -148,7 +149,8 @@ jack           battery          config get/set
 ### Week 1 Day 6-7 — 网络 + BLE 回退
 
 - [ ] WiFiManager：连接 NVS 凭据 → 失败或服务不可达 → 触发 BLE 回退
-- [ ] BleProvisioner：NimBLE GATT Server，广播 `cardio/req-wifi` / `cardio/req-hotspot`
+- [ ] BleProvisioner：NimBLE GATT Server，Service 0xFF00，含 WiFi 配网（0xFF01/02）和 DevStatus（0xFF03）
+- [ ] BlePushService：在 0xFF00 追加 PushRX（0xFF04）和 PushACK（0xFF05），`notify_mode=ble` 时激活
 - [ ] BleProvisioner 追加 NUS Service（6E400001...）：DebugConsole BLE 通道接入
 - [ ] 服务端并行：docker-compose 部署 Mosquitto + FastAPI，CF Tunnel 配置
 
@@ -161,8 +163,8 @@ wifi status/connect    mqtt status    mqtt pub <topic> <内容>
 
 ### Week 2 Day 1-2 — 固件网络功能
 
-- [ ] MqttClient：WiFiClientSecure + WebSocketsClient + PubSubClient，WSS 连接
-- [ ] NotifyManager：订阅 `notify/#`，JSON 解析，状态机（IDLE/NOTIFY/CALL）
+- [ ] MqttClient：WiFiClientSecure + WebSocketsClient + PubSubClient，WSS 连接（`notify_mode=wifi` 时启用）
+- [ ] NotifyManager：JSON 解析，状态机（IDLE/NOTIFY/CALL），统一接收 BLE 和 MQTT 两路输入
 - [ ] 白名单：从 `notify_filter.txt` 读取
 - [ ] NotifyOverlay：顶部通知条，5s 自动消失，音乐继续
 - [ ] CallScreen：全屏来电，音乐暂停，用户关闭后恢复

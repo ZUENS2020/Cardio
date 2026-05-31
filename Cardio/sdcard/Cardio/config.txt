@@ -10,8 +10,8 @@ mqtt_user=
 mqtt_pass=
 
 # 功能开关
-notify_enabled=false
-rss_enabled=false
+notify_mode=off       # off | ble | wifi
+rss_enabled=false     # false | true（仅 wifi 模式可用）
 
 # 调试
 debug_enabled=false
