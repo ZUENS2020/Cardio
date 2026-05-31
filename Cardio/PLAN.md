@@ -98,13 +98,41 @@ gantt
 
 ## 任务清单
 
-### Week 1 Day 1-2 — 固件基础层
+### Week 1 Day 1 — Logger + DebugConsole（最先做）
+
+**原则：所有后续模块开发直接用 LOG_X 埋点，不再用 Serial.println**
+
+- [ ] `Logger`：全局单例，宏接口 `LOG_D/I/W/E(tag, fmt, ...)`
+  - Serial 实时输出（USB CDC 115200）
+  - SD 卡写入 `/Cardio/logs/cardio.log`，超 512KB 自动轮转（保留 3 个文件）
+  - 日志格式：`[000123456][INFO ][AUDIO] Playing: 稻香.flac`
+  - 运行时级别过滤，`debug_enabled=false` 时关闭 SD 写入仅保留 Serial
+- [ ] `DebugConsole`（Serial 通道）：主循环轮询 `Serial.readStringUntil('\n')`，启动时打印命令列表
+
+**此阶段可用命令（随模块增加逐步扩充）：**
+```
+heap          显示 SRAM/PSRAM 剩余
+log level <debug|info|warn|error>   设置日志级别
+log dump      输出当前日志文件全部内容
+log clear     清空日志文件
+reboot        重启设备
+```
+
+---
+
+### Week 1 Day 2-3 — 固件基础层
 
 - [ ] 分区方案设为 `huge_app.csv`（默认 1.4MB 放不下所有库，需改为 3MB App 分区）
 - [ ] Config：解析 config.txt，读取所有开关和配置项，`mqtt_port` 默认 443
 - [ ] AudioEngine：ES8311 I2S 引脚确认，48kHz/24-bit，关 ALC，增益分级，DMA buffer 调优
 - [ ] JackMonitor：GPIO 边沿中断，插拔立即暂停
 - [ ] 基础播放验收：SD 卡放 FLAC，Space/←/→/音量键能用，拔耳机暂停
+
+**新增调试命令：**
+```
+play <路径>    volume <0-21>    pause/resume    status
+jack           battery          config get/set
+```
 
 ### Week 1 Day 3-4 — 播放列表
 
@@ -123,7 +151,13 @@ gantt
 
 - [ ] WiFiManager：连接 NVS 凭据 → 失败或服务不可达 → 触发 BLE 回退
 - [ ] BleProvisioner：NimBLE GATT Server，广播 `cardio/req-wifi` / `cardio/req-hotspot`
+- [ ] BleProvisioner 追加 NUS Service（6E400001...）：DebugConsole BLE 通道接入
 - [ ] 服务端并行：docker-compose 部署 Mosquitto + FastAPI，CF Tunnel 配置
+
+**新增调试命令：**
+```
+wifi status/connect    mqtt status    mqtt pub <topic> <内容>
+```
 
 ---
 
@@ -134,6 +168,12 @@ gantt
 - [ ] 白名单：从 `notify_filter.txt` 读取
 - [ ] NotifyOverlay：顶部通知条，5s 自动消失，音乐继续
 - [ ] CallScreen：全屏来电，音乐暂停，用户关闭后恢复
+
+**新增调试命令：**
+```
+notify <来源> <内容>    call <姓名>    ui <screen>
+rss refresh    rss list    screen <on|off>
+```
 
 ### Week 2 Day 1-3 — Android 客户端（可与固件并行）
 
