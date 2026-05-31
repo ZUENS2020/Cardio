@@ -112,11 +112,13 @@ class AudioOutputM5Speaker : public AudioOutput {
 
 ---
 
-## 4. Config（纯软件，可今晚先写，明天集成）
+## 4. Config（✅ 已写完，明天仅需实机验证）
 
-- [ ] 解析 `/Cardio/config.txt` 键值对，填充全局配置
-- [ ] `Cardio.ino` 改为从 Config 读 `debug_enabled` / `log_level` / `default_volume`（替换当前编译期常量）
-- [ ] 新增调试命令：`config get <key>` / `config set <key> <val>`
+代码已完成并 `pio run` 通过（commit `0e52a68`）。明天实机确认：
+- [ ] SD 卡放好 `config.txt`，启动日志出现 `[CFG] loaded N keys: ...`
+- [ ] `config get default_volume` 返回卡上的值
+- [ ] `config set log_level debug` → `config save` → `reboot` 后仍生效（验证回写）
+- [ ] 改 `debug_enabled=true` 后 SD 出现 `/Cardio/logs/cardio.log`
 
 ---
 
