@@ -8,6 +8,8 @@
 |---|---|---|---|
 | 主入口 | Cardio.ino | 80 | setup/loop，模块初始化 |
 | Config | Config.h/cpp | 120 | 读写 config.txt，键值对解析 |
+| Logger | Logger.h/cpp | 120 | 分级日志，输出到 Serial / BLE NUS / SD 卡文件 |
+| DebugConsole | DebugConsole.h/cpp | 220 | 命令解析分发，Serial + BLE NUS 双通道 |
 | AudioEngine | AudioEngine.h/cpp | 150 | ESP32-audioI2S 封装，ES8311 寄存器配置，增益分级 |
 | JackMonitor | JackMonitor.h/cpp | 60 | GPIO 中断，插拔事件回调 |
 | PlaybackController | PlaybackController.h/cpp | 200 | 核心状态机，衔接音源/顺序/引擎 |
@@ -22,7 +24,7 @@
 | NotifyOverlay | NotifyOverlay.h/cpp | 80 | 顶部通知条，5s 计时淡出 |
 | CallScreen | CallScreen.h/cpp | 100 | 全屏来电，来源/内容显示，关闭按键 |
 | SettingsScreen | SettingsScreen.h/cpp | 150 | 运行时开关，写回 config.txt |
-| **固件合计** | | **~2170 行** | |
+| **固件合计** | | **~2510 行** | |
 
 ### 服务端
 
@@ -46,12 +48,12 @@
 
 | 部分 | 语言 | 行数 |
 |---|---|---|
-| 固件 | C++ | ~2200 |
+| 固件 | C++ | ~2510 |
 | 服务端 | Python | ~170 |
-| Android 客户端 | Kotlin | ~770 |
+| Android 客户端 | Kotlin | ~1030 |
 | macOS 客户端 | Swift | ~600 |
 | Windows 客户端 | C# | ~530 |
-| **总计** | | **~4270 行** |
+| **总计** | | **~4840 行** |
 
 > 客户端详细计划见 [CLIENT_PLAN.md](CLIENT_PLAN.md)
 
@@ -68,7 +70,8 @@ gantt
     axisFormat  %m/%d
 
     section Week 1 固件核心
-    Config + AudioEngine + JackMonitor   :w1a, 2026-06-01, 2d
+    Logger + DebugConsole（Serial）      :w1a0, 2026-06-01, 1d
+    Config + AudioEngine + JackMonitor   :w1a, after w1a0, 2d
     Playlist + LocalSource + PlayOrder   :w1b, after w1a, 2d
     PlayerScreen + BrowserScreen         :w1c, after w1b, 1d
     WiFiManager + BLE 回退流程           :w1d, after w1c, 2d
