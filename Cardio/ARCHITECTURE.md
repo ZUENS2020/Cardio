@@ -354,6 +354,81 @@ sequenceDiagram
 
 ---
 
+### BLE 配对机制
+
+**方式：Passkey Entry（数字确认）**
+设备显示 6 位 PIN，用户在手机系统弹框输入，配对成功后 Bond 密钥持久化双方，后续连接全自动无感。
+
+比 Just Works 安全，防止陌生手机推送假通知。
+
+**首次配对流程：**
+
+```mermaid
+sequenceDiagram
+    participant Phone as Android App
+    participant OS as Android 系统
+    participant Card as Cardputer ADV
+
+    Phone->>Card: 扫描发现 "Cardio-XXXX"，发起 GATT 连接
+    Phone->>Card: 尝试写 0xFF04 PushRX（ENCRYPTED 特性）
+    Card->>OS: 触发配对请求
+    Card->>Card: 生成随机 6 位 PIN\n屏幕显示配对码
+    OS->>Phone: 系统弹框"请输入配对码"
+    Phone->>OS: 用户输入 PIN
+    OS->>Card: 配对码确认
+    Card->>Card: 验证通过，Bond 密钥写入 NVS
+    OS->>OS: Bond 密钥写入 Android 系统
+    Card-->>Phone: 安全连接建立
+```
+
+**后续连接：** App 扫描到设备后自动用 NVS 中的 Bond 密钥加密，无需用户操作。
+
+**固件端 NimBLE 配置：**
+
+```cpp
+NimBLEDevice::setSecurityAuth(
+    BLE_SM_PAIR_AUTHREQ_BOND |   // 持久化 Bond
+    BLE_SM_PAIR_AUTHREQ_MITM |   // MITM 保护
+    BLE_SM_PAIR_AUTHREQ_SC       // LE Secure Connections (BLE 4.2+)
+);
+NimBLEDevice::setSecurityIOCap(BLE_HS_IO_DISPLAY_ONLY);
+
+// PushRX Characteristic 安全属性
+pPushRX->setProperties(
+    NIMBLE_PROPERTY::WRITE |
+    NIMBLE_PROPERTY::WRITE_ENC |    // 要求加密
+    NIMBLE_PROPERTY::WRITE_AUTHEN   // 要求已认证
+);
+
+// 配对回调：把 PIN 显示到屏幕
+class PairingCallbacks : public NimBLESecurityCallbacks {
+    uint32_t onPassKeyRequest() {
+        uint32_t pin = random(100000, 999999);
+        UI::showPairingPin(pin);   // 显示到屏幕
+        return pin;
+    }
+    void onAuthenticationComplete(ble_gap_conn_desc* desc) {
+        if (desc->sec_state.authenticated) UI::hidePairingPin();
+    }
+};
+```
+
+**Bond 管理：**
+
+| 场景 | 处理 |
+|------|------|
+| 换手机 / 重新配对 | SettingsScreen → "清除配对"→ `NimBLEDevice::deleteAllBonds()` |
+| 调试清除 | DebugConsole 命令 `ble unpair` |
+| 多台手机 | NimBLE 默认支持多 Bond，直接可用 |
+| 固件重刷 | NVS 分区保留 Bond；可用 `ble unpair` 手动清除 |
+
+**Android 侧注意事项：**
+- 配对是系统级行为，App 无需写配对 UI，系统自动弹框
+- 已知坑：Android BLE 重连偶发异常时需清除系统 Bond（设置 → 蓝牙 → 忘记设备）
+- App 在设置页提供"重新配对"按钮，调用 `device.removeBond()`（反射）后重新扫描连接
+
+---
+
 ### WiFi 推送（notify_mode=wifi）
 
 沿用原有 MQTT over WSS 方案，详见"网络连接路径"章节。
