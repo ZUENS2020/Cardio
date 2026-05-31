@@ -166,16 +166,16 @@ sequenceDiagram
 
 | 文件 | 行数 |
 |---|---|
-| MainActivity.kt（设置 UI） | 180 |
-| CardioNotificationListener.kt | 150 |
-| CallListener.kt | 100 |
-| SmsReceiver.kt | 80 |
-| FilterTable.kt | 80 |
-| Uploader.kt（含重试队列） | 120 |
-| BleWifiHelper.kt | 180 |
-| WifiCredential.kt | 80 |
-| DataStore 配置 | 60 |
-| **合计** | **~1030 行** |
+| MainActivity.kt（设置 UI） | 120 |
+| CardioNotificationListener.kt | 70 |
+| CallListener.kt | 50 |
+| SmsReceiver.kt | 40 |
+| FilterTable.kt | 35 |
+| Uploader.kt（含重试队列） | 100 |
+| BleWifiHelper.kt | 150 |
+| WifiCredential.kt | 50 |
+| DataStore 配置 | 30 |
+| **合计** | **~645 行** |
 
 ### 任务清单
 
@@ -357,7 +357,7 @@ graph TB
 
 | 平台 | 语言 | 行数 | 状态 |
 |---|---|---|---|
-| Android | Kotlin | ~1030 | 本期开发 |
+| Android | Kotlin | ~645 | 本期开发 |
 | macOS | Swift | ~600 | 后续迭代 |
 | Windows | C# | ~530 | 后续迭代 |
 | **本期客户端** | | **~1030 行** | |
@@ -370,8 +370,8 @@ graph TB
 |---|---|
 | 固件 C++ | ~2510 |
 | 服务端 Python | ~170 |
-| Android 客户端 Kotlin | ~1030 |
-| **总计** | **~3710 行** |
+| Android 客户端 Kotlin | ~645 |
+| **总计** | **~3325 行** |
 
 ---
 
