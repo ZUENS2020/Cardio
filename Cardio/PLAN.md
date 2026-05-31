@@ -204,6 +204,21 @@ rss refresh    rss list    screen <on|off>
 | macOS 客户端 | 3d |
 | Windows 客户端 | 3d |
 | iOS 客户端（如有需要） | 5d |
+| Web 配置页面 | 待定 |
+
+---
+
+## Web 配置页面
+
+ADV 连上 WiFi 后在屏幕显示本机 IP，用户在同一局域网浏览器访问即可配置。
+
+**技术方案：**
+- 固件端运行 `ESPAsyncWebServer`（轻量异步 HTTP 服务器，Arduino 库）
+- 配置页面 HTML 内嵌进固件 Flash（PROGMEM），不占 SD 卡
+- REST API：`GET /api/config` 读取当前配置，`POST /api/config` 写入并保存到 NVS
+- 需要 WiFi 已连接，config.txt 中加开关 `webui_enabled=true`
+
+**可配置项：** 待定
 
 ---
 
