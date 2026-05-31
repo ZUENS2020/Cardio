@@ -147,9 +147,177 @@
 
 ---
 
-## 6. 待办（设计系统到位后）
-- [ ] 建 `ui/Theme.h`：颜色/字号/间距/圆角 token
-- [ ] 字体管线：efontCN 选定字号 + 生成品牌 VLW，放 `/Cardio/ui/fonts/`
-- [ ] 图标管线：写个 PNG→RGB565+alpha 数组的转换脚本（`tools/`）
-- [ ] `ui/widgets/` 基础组件
-- [ ] 6 屏逐个实现（Splash → Player → Browser → Settings → NotifyOverlay → Call）
+## 6. 设计系统判读（设计稿已收到，2026-05-31）
+
+设计稿以 HTML/JSX/CSS 形式交付，**完整度极高**，包含色彩系统、字型体系、间距 token、
+全部屏幕的 JSX 实现和 px 精确的 CSS。下面是逐项翻译结论。
+
+### 6.1 颜色 → `Theme.h` RGB565 常量
+
+设计师已完成 RGB565 量化（注释里标了 `565: #...`），颜色选取本身对量化友好。
+直接翻 `rgb565()` 常量：
+
+| Token | hex | 用途 |
+|---|---|---|
+| `screen_black` | `#0B0D10` | 屏幕底色 |
+| `surface_1` | `#15181D` | 面板/列表背景 |
+| `surface_2` | `#1F242B` | 抬起行、输入框 |
+| `surface_3` | `#2A3039` | hover/pressed |
+| `line` | `#2C333C` | 1px 分割线 |
+| `line_bright` | `#3A424D` | 聚焦边框 |
+| `fg0` | `#EDF0F3` | 主文字 |
+| `fg1` | `#B9C0C9` | 次强文字 |
+| `fg2` | `#818A95` | 标签/辅助 |
+| `fg3` | `#5A636E` | muted/disabled |
+| **`accent`** | **`#FF7A1A`** | **橘色——选中光标、签名色** |
+| `accent_bright` | `#FF9847` | hover accent |
+| `accent_dim` | `#C25A0F` | pressed accent |
+| `accent_ink` | `#160A02` | accent 背景上的文字（深色） |
+| `cyan` | `#2FD4C6` | 次强调（WiFi/RSS/链接） |
+| `cyan_dim` | `#1E8E85` | |
+| `ok` | `#3FCF6A` | 成功/已连接 |
+| `warn` | `#FFC53D` | 警告/低电 |
+| `err` | `#FF5247` | 错误/来电 |
+| `info` | `#3AC0E8` | 信息 |
+| `ok_bg` | `#11261A` | 状态 pill 深底色 |
+| `warn_bg` | `#2A2410` | |
+| `err_bg` | `#2A1210` | |
+
+### 6.2 字体方案（已确认）
+
+| 角色 | 固件字体 | 用途 |
+|---|---|---|
+| 主 UI / 数字 | **JetBrains Mono → VLW**（拉丁子集，仅 ASCII） | statusbar 标题、hint、数字读数 |
+| 像素 wordmark | **Silkscreen → VLW**（`CARDIO`、`SEQ/SHF/RPT`、boot） | 大写 ASCII 标签 |
+| CJK 正文（14px） | **`efontCN_14`** 内置 | 列表行、通知 body、hint CJK |
+| CJK 小字（11/12px） | **`efontCN_12`** 内置 | artist 名、副标签 |
+| CJK 大字（16px，歌曲名） | **`efontCN_16`** 内置（替代 DotGothic16，已确认） | `ptitle` |
+| 状态/hint 小字（9-10px） | **`efontCN_10`** 内置 | hint bar CJK、时间 |
+
+> VLW 生成：JetBrains Mono 和 Silkscreen 只需 ASCII 可打印字符（95 个），
+> 用 M5Stack VLW Creator 或 Processing 各生成 12/14/16px 版，放 `/Cardio/ui/fonts/`。
+> 固件启动时 `loadFont` 加载，用完 `unloadFont` 释放。
+
+### 6.3 图标 → C++ `fillRect` 数组（无 SD 依赖）
+
+设计图标全部是 **16×16 `<rect>` 序列**（像素风，crispEdges），可 1:1 翻译成：
+```cpp
+struct IconRect { int8_t x, y, w, h; };
+constexpr IconRect ICON_WIFI[] = { {3,2,10,1},{1,3,2,1},{13,3,2,1},..., {0,0,0,0} };
+// 绘制：for each rect → sprite.fillRect(ox+r.x, oy+r.y, r.w, r.h, color);
+```
+全部 24 个图标编译进固件，`color` 参数传入即可换色——**天然 single-color，无需 alpha。**
+
+**设计稿已有图标**（24 个）：
+apps / back / battery / check / chevronDown / chevronRight /
+clock / file / folder / gear / home / info / lock / mic /
+play / plus / sd / search / signal / terminal / trash / volume / wifi / x
+
+**缺失、需补画**（对照各屏）：
+- `pause`（PlayerScreen transport）
+- `prev` / `next`（transport 上下曲）
+- `note`（StatusBar 音符，PlayerScreen 播放中标志）
+- `heart`（PlayerScreen 收藏）
+- `phone`（CallScreen）
+- `bell`（NotifyOverlay 图标，StatusBar 通知）
+- `list`（BrowserScreen StatusBar）
+
+共 8 个，全部 16×16 像素风，和现有图标同风格。
+
+**logo-mark**：SVG 用 `<rect>` 堆成，也可翻成 `fillRect` 序列直接在 BootScreen 画，
+无需加载 PNG/图片文件。
+
+### 6.4 屏幕布局（全部精确到 px）
+
+**三段式通用结构**：
+```
+statusbar   16px（icon + title | conn-chip + battery% + clock）
+body       105px（flex，各屏自定义内容）
+hintbar     14px（[kbd]动作 提示对，字号 9px）
+```
+
+#### PlayerScreen（最复杂）
+```
+body 105px:
+  top row（约 50px）:
+    cover 44×44px ← border 1px line_bright，左上/右下各 2px accent L 形角标
+    pmeta（flex:1）: ptitle 16px efontCN_16 / partist 11px / pfmt 10px
+  viz  9px（22根 3×?px 竖条，accent 色随机高度抖动；暂停时灰色 18% 高）
+  progress（约 14px）: time_l + track-bar 4px + knob 3×8px + time_r
+  pctl（约 18px）: order-tag | [prev][▶️][next] | vol-bar(7格)
+```
+
+#### BrowserScreen
+- 播放列表模式：5行 ×18px，含 folder/signal 图标、RSS tag、数量、chevronRight
+- 曲目模式：5行，含 nowbar(2×11px accent) 或 idx、歌名（ellipsis）、时长
+
+#### NotifyOverlay
+- `position:absolute; top:0; z-index:5`，**叠在 PlayerScreen 上，不全屏**
+- 高约 40px：18×18 accent 方块图标 | app名+时间+消息体（2行 clamp）
+- 底部 1px accent 边框
+
+#### CallScreen
+- `position:absolute; inset:0; z-index:6`，全屏覆盖
+- 顶 16px `err_bg` 条 + `err` 1px 底边框 + "来电 INCOMING"
+- 中央：34px 圆环（err 色脉冲）+ 20px 联系人名 + 11px 号码 + 9px 提示
+- 底 18px：dismiss(ESC) | 静音(⏎)，1px 分割
+
+#### SettingsScreen
+- 标准列表，5行×18px，含 Toggle/Slider/Select/Action 四种控件类型
+
+#### BootScreen（SplashScreen）
+- 中心布局：38×38px logo-mark（fillRect 序列）+ "CARDIO"（Silkscreen 18px）
+  + "MUSIC · NOTIFY"（Silkscreen 8px，accent 色）
+  + 进度条 118×4px + boot log（左下，8px，逐行追加）+ version（右下）
+
+#### PairingScreen（补充，PLAN 里未列）
+- BLE 配对码：6 位数字，每位 20×26px 方块（surface_2 底，accent 色数字，18px Mono）
+- 要加进 PLAN 里
+
+#### NoticeScreen（补充，PLAN 里未列）
+- 无 SD / 离线的错误全屏提示，24px icon + pixel 大字 + CJK 副文字
+- 要加进 PLAN 里
+
+### 6.5 组件实现清单（`ui/widgets/`）
+
+| 组件 | 对应固件文件 | 关键细节 |
+|---|---|---|
+| StatusBar | widgets/StatusBar | icon+title / conn-chip(ble/wifi/off) / battery颜色三档 / 时钟 |
+| HintBar | widgets/HintBar | kbd方块 + CJK动作文字，9px |
+| ListRow | widgets/ListRow | normal/sel(accent)/sel-idle(surface_2+accent左条) 三态 |
+| ProgressBar | widgets/ProgressBar | track+fill+knob，局部子Sprite重绘 |
+| Visualizer | widgets/Visualizer | 22根竖条，millis()伪随机高度，playing/paused两态 |
+| Cover | widgets/Cover | 44×44，placeholder或图片，accent L角标 |
+| VolBar | widgets/VolBar | 7格, accent色 on / fg3 off |
+| OrderTag | widgets/OrderTag | border-radius:2px box，CN+EN标签 |
+| Toggle | widgets/Toggle | ON(ok色)/OFF(fg3色) pill |
+| Icon | widgets/Icon | fillRect数组驱动，color参数 |
+| NotifyOverlay | NotifyOverlay.h | absolute叠层，accent底边框 |
+| CallScreen | CallScreen.h | absolute全屏，err脉冲圆环动效 |
+
+### 6.6 动效策略
+
+CSS 里有几处动效，固件侧简化方案：
+
+| 设计动效 | 固件策略 |
+|---|---|
+| viz bars（CSS keyframes/animation-delay） | `millis()` + per-bar offset，6档高度循环，步进更新 |
+| notify slide-in（translateY -100%→0，步进 4 帧，110ms） | 逐帧推 Sprite，4帧 × `pushSprite`（`steps(4,end)` ≈ 27ms/帧） |
+| call ring pulse（`err ↔ err_bg` 1s 2步） | `(millis()/500)%2` 切换颜色 |
+| caret blink（1s 2步） | `(millis()/500)%2` |
+| selection snap（90ms） | 即时，嵌入式无意义做插值 |
+
+---
+
+## 7. 实现顺序（设备 bring-up 后，按依赖序）
+
+1. `ui/Theme.h` — token 常量表（颜色+字号+间距+圆角，无依赖）
+2. `ui/icons/Icons.h` — 24+8 图标 fillRect 数组（无依赖）
+3. VLW 字体生成 + SD 上传（JetBrains Mono 12/14/16，Silkscreen 8/18）
+4. `ui/widgets/` 基础组件
+5. BootScreen（最先上屏，验证字体/颜色/图标管线）
+6. PlayerScreen（核心，最复杂，和 AudioEngine 联调）
+7. BrowserScreen（依赖 LocalSource/RssSource）
+8. NotifyOverlay + CallScreen（依赖 NotifyManager）
+9. SettingsScreen（依赖 Config.save）
+10. PairingScreen + NoticeScreen（补充屏，Week 1 Day 6-7）
