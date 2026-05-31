@@ -1,0 +1,3 @@
+# 格式：名称|RSS URL（每行一条，# 开头为注释）
+# 示例：
+# 硬核节目|https://feeds.example.com/hardcore.xml
