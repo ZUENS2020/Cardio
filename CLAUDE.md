@@ -240,20 +240,27 @@ curl -X POST http://localhost:8000/notify \
 - 3.5mm 耳机插入时自动切换 EQ 预设并暂停播放
 
 ### 音频
-- ESP32-audioI2S 在 **Core 0** 运行，不要在 Core 0 做其他任务
+- 音频库：**ESP8266Audio 1.9.7 + M5.Speaker**（M5Unified 拥有 ES8311+I2S，解码器只解码，通过 AudioOutput 桥接 playRaw）
+- **不用** ESP32-audioI2S（不配 ES8311 寄存器，且新版依赖 IDF5）
 - I2S 输出固定 48kHz，所有格式都会重采样到 48kHz
-- 支持格式：MP3 / FLAC / WAV / AAC / M4A / OGG Vorbis / Opus
+- 支持格式：MP3 / FLAC / WAV / AAC / Opus（OGG Vorbis / M4A 待实机确认）
 - 不支持：WMA、APE（无嵌入式解码器）
 
 ### 网络
 - WiFi 和 BLE 可共存（时分复用），BLE 激活时 WiFi 吞吐略降
-- MQTT 走 WSS（WebSocket over TLS），CF Tunnel 固定 443 端口，frp 等工具需在 config.txt 配置 `mqtt_port`
-- "连不上"判定为**应用层不可达**（MQTT connect 超时 or RSS HTTP 失败），不是 WiFi 关联失败
+- **本期通知仅走 BLE 直推**（`notify_mode=ble`）；WiFi 仅用于 RSS 拉取
+- MQTT / 服务端路径为**后续迭代**，本期不实现
+- "连不上"判定（RSS 场景）：HTTP 请求超时，不是 WiFi 关联失败
 
-### BLE WiFi 回退（仅 Android 有效）
+### BLE 直推（本期通知路径）
+- 固件广播 `Cardio-XXXX`，Android App 扫描并连接 GATT Service 0xFF00
+- 通知内容通过 PushRX Characteristic（0xFF04）写入，设备回 PushACK（0xFF05）
+- NUS Service（6E400001...）供 DebugConsole BLE 通道使用
+
+### BLE WiFi 回退（后续迭代）
 1. 服务不可达 → BLE 广播 `cardio/req-wifi` → App 发送当前 WiFi 凭据
-2. 仍不可达 → BLE 广播 `cardio/req-hotspot` → App 引导开热点（首次需一键，之后全自动）
-3. `notify_enabled` 和 `rss_enabled` 均为 false 时，整个流程不触发
+2. 仍不可达 → BLE 广播 `cardio/req-hotspot` → App 引导开热点
+3. 依赖服务端 MQTT，本期不实现
 
 ### UI
 - 全部使用 Sprite 离屏渲染后 `pushSprite`，避免闪烁

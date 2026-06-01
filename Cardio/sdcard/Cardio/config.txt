@@ -2,16 +2,16 @@
 wifi_ssid=
 wifi_pass=
 
-# MQTT
-mqtt_host=
+# MQTT（后续迭代，notify_mode=wifi 时才需要）
+# mqtt_host=
 # mqtt_port=443
-mqtt_path=/mqtt
-mqtt_user=
-mqtt_pass=
+# mqtt_path=/mqtt
+# mqtt_user=
+# mqtt_pass=
 
 # 功能开关
-notify_mode=off       # off | ble | wifi
-rss_enabled=false     # false | true（仅 wifi 模式可用）
+notify_mode=ble       # off | ble（本期）| wifi（后续迭代）
+rss_enabled=false     # false | true（需 WiFi）
 
 # 调试
 debug_enabled=false
