@@ -27,3 +27,5 @@ node_modules/
 # 环境变量
 .env
 *.env.local
+/Cardio/tools/splash-animation
+/.agents
