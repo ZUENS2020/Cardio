@@ -82,9 +82,9 @@ void setup() {
 }
 
 void loop() {
-    M5Cardputer.update();                 // 键盘 / 按钮轮询
-    AudioEngine::instance().update();     // 解码器驱动（必须高频调用）
-    JackMonitor::instance().update();     // 耳机插拔检测
+    M5Cardputer.update();                 // 键盘 / 按钮轮询（Core 1）
+    // AudioEngine::update() 已移到 Core 0 独立任务，此处不再调用
+    JackMonitor::instance().update();     // 耳机插拔检测（Core 1）
 
     // UI 每 16 次 loop 更新一次（约 16×2ms = 32ms ≈ 30fps），
     // 不影响 AudioEngine::update() 的调用频率

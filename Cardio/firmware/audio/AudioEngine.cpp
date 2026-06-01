@@ -46,11 +46,22 @@ AudioEngine& AudioEngine::instance() {
     return inst;
 }
 
+// ── Core 0 音频任务 ────────────────────────────────────────────────────────
+void AudioEngine::audioTask(void* arg) {
+    auto* eng = static_cast<AudioEngine*>(arg);
+    for (;;) {
+        eng->update();
+        vTaskDelay(1);  // 1ms yield，让 Core 0 上的 WiFi/BT 任务也能运行
+    }
+}
+
 // ── begin ──────────────────────────────────────────────────────────────────
 void AudioEngine::begin() {
-    // 提高 Speaker 内部 PWM 采样率：96kHz 比默认 64kHz 音质明显更好
+    _mutex = xSemaphoreCreateMutex();
+
     auto spk_cfg = M5Cardputer.Speaker.config();
     spk_cfg.sample_rate = 96000;
+    spk_cfg.stereo = true;
     M5Cardputer.Speaker.config(spk_cfg);
     M5Cardputer.Speaker.begin();
 
@@ -58,7 +69,19 @@ void AudioEngine::begin() {
     _impl->out = new AudioOutputM5Speaker(0);
     _impl->out->begin();
     setVolume(_volume);
-    LOG_I("AUDIO", "AudioEngine ready, vol=%u, spk_rate=96kHz", _volume);
+
+    // 解码任务固定在 Core 0（UI + 控制台跑 Core 1）
+    xTaskCreatePinnedToCore(
+        audioTask,
+        "audioTask",
+        12288,   // 12KB stack：FLAC 解码需要较大栈
+        this,
+        5,       // 优先级 5（高于 loop 的默认 1，低于系统任务的 24）
+        &_taskHandle,
+        0        // Core 0
+    );
+
+    LOG_I("AUDIO", "AudioEngine ready, vol=%u, stereo, task=Core0", _volume);
 }
 
 // ── play ───────────────────────────────────────────────────────────────────
@@ -128,9 +151,13 @@ bool AudioEngine::play(const char* path) {
         return false;
     }
 
+    // 加锁后再挂入 generator（stop() 已经清理过了）
+    if (_mutex) xSemaphoreTake(_mutex, portMAX_DELAY);
     strlcpy(_impl->path, path, sizeof(_impl->path));
     _startMs  = millis();
     _pausedMs = 0;
+    if (_mutex) xSemaphoreGive(_mutex);
+
     LOG_I("AUDIO", "playing: %s", path);
     return true;
 }
@@ -154,11 +181,13 @@ void AudioEngine::resume() {
 
 void AudioEngine::stop() {
     if (!_impl) return;
+    if (_mutex) xSemaphoreTake(_mutex, portMAX_DELAY);
     if (_impl->gen && _impl->gen->isRunning()) {
         _impl->out->stop();
     }
     _impl->cleanup();
     _paused = false;
+    if (_mutex) xSemaphoreGive(_mutex);
 }
 
 bool AudioEngine::isPlaying() const {
@@ -172,15 +201,17 @@ void AudioEngine::setVolume(uint8_t vol) {
     M5Cardputer.Speaker.setVolume(_volume * 12);
 }
 
-// ── update (loop) ──────────────────────────────────────────────────────────
+// ── update（Core 0 任务调用，mutex 保护）─────────────────────────────────
 void AudioEngine::update() {
     if (!_impl || !_impl->gen || _paused) return;
-    if (_impl->gen->isRunning()) {
+    if (_mutex && xSemaphoreTake(_mutex, 0) != pdTRUE) return;  // 非阻塞取锁
+    if (_impl->gen && _impl->gen->isRunning()) {
         if (!_impl->gen->loop()) {
             LOG_I("AUDIO", "playback ended: %s", _impl->path);
             _impl->cleanup();
         }
     }
+    if (_mutex) xSemaphoreGive(_mutex);
 }
 
 // ── console commands ───────────────────────────────────────────────────────
