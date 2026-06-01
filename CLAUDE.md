@@ -258,7 +258,9 @@ curl -X POST http://localhost:8000/notify \
 ### UI
 - 全部使用 Sprite 离屏渲染后 `pushSprite`，避免闪烁
 - 进度条每秒更新一次，用局部 Sprite 只推进度条区域
-- 显示中文需要用 M5GFX 内置 Unicode 字体（`fonts::efontCN_14`）
+- **字体**：CJK / 日语 / 俄语统一用 `efontJA`（含汉字 + 平假名 + 片假名 + Cyrillic + Latin-1 Sup），**不用 `efontCN`**（缺日语假名和俄语）。Flash 多 +357KB，3MB 分区充裕。拉丁/数字用 JetBrains Mono VLW；像素风标题用 Silkscreen VLW。
+- 屏幕数量：6 个主屏（Player/Browser/Notify/Call/Settings/Splash）+ 2 个补充屏（PairingScreen BLE 配对码、NoticeScreen 无 SD/离线错误）
+- 图标：24 个像素风 16×16 图标编译进固件（`fillRect` 数组，无需 SD），另需补画 8 个（pause/prev/next/note/heart/phone/bell/list）
 
 ---
 

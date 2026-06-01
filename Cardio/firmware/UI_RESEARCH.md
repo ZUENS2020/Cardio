@@ -189,11 +189,16 @@
 |---|---|---|
 | 主 UI / 数字 | **JetBrains Mono → VLW**（拉丁子集，仅 ASCII） | statusbar 标题、hint、数字读数 |
 | 像素 wordmark | **Silkscreen → VLW**（`CARDIO`、`SEQ/SHF/RPT`、boot） | 大写 ASCII 标签 |
-| CJK 正文（14px） | **`efontCN_14`** 内置 | 列表行、通知 body、hint CJK |
-| CJK 小字（11/12px） | **`efontCN_12`** 内置 | artist 名、副标签 |
-| CJK 大字（16px，歌曲名） | **`efontCN_16`** 内置（替代 DotGothic16，已确认） | `ptitle` |
-| 状态/hint 小字（9-10px） | **`efontCN_10`** 内置 | hint bar CJK、时间 |
+| CJK 正文（14px） | **`efontJA_14`** 内置 | 列表行、通知 body、hint CJK |
+| CJK 小字（11/12px） | **`efontJA_12`** 内置 | artist 名、副标签 |
+| CJK 大字（16px，歌曲名） | **`efontJA_16`** 内置（替代 DotGothic16，已确认） | `ptitle` |
+| 状态/hint 小字（9-10px） | **`efontJA_10`** 内置 | hint bar CJK、时间 |
 
+> **使用 efontJA 而非 efontCN（已决策，2026-05-31）：**
+> efontJA 额外包含平假名 + 片假名（日语）+ Cyrillic（俄语）+ Latin Extended（法语重音），
+> Flash 仅多 +357KB（12+14+16px，3字号），3MB huge_app 分区充裕（整体约 56%）。
+> efontCN 不含日语假名和俄语，无法支持多语言通知内容。
+>
 > VLW 生成：JetBrains Mono 和 Silkscreen 只需 ASCII 可打印字符（95 个），
 > 用 M5Stack VLW Creator 或 Processing 各生成 12/14/16px 版，放 `/Cardio/ui/fonts/`。
 > 固件启动时 `loadFont` 加载，用完 `unloadFont` 释放。

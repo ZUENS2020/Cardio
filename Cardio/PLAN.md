@@ -138,7 +138,7 @@ jack           battery          config get/set
 ### Week 1 Day 3-4 — 播放列表
 
 - [ ] LocalSource：扫描 `/Cardio/music/` 一级子文件夹，散文件归入默认列表
-- [ ] 支持格式：MP3 / FLAC / WAV / AAC / M4A / OGG / Opus（ESP32-audioI2S 全部内置，无需额外工作）
+- [ ] 支持格式：MP3 / FLAC / WAV / AAC / Opus（ESP8266Audio 1.9.7 + M5.Speaker；OGG Vorbis / M4A 容器待实机确认）
 - [ ] Playlist + PlayOrder：5 种顺序，fn+O 切换
 - [ ] BrowserScreen：↑↓ 移动，Enter 播放，长按 fn 进入列表选择
 - [ ] PlayerScreen：歌名、艺术家（ID3 回调）、进度条、mm:ss
@@ -147,6 +147,8 @@ jack           battery          config get/set
 
 - [ ] RssSource 列表与本地列表在 BrowserScreen 混合显示（图标区分 📁 / 📡）
 - [ ] SettingsScreen 骨架（开关页，后续扩充）
+- [ ] PairingScreen：BLE 配对码显示（6 位数字，20×26px 方块，对应 BleProvisioner Day 6-7）
+- [ ] NoticeScreen：无 SD / 离线全屏错误提示（icon + pixel 大字 + CJK 副文字 + 操作提示）
 
 ### Week 1 Day 6-7 — 网络 + BLE 回退
 
@@ -200,6 +202,7 @@ rss refresh    rss list    screen <on|off>
 | 功能 | 工期估算 |
 |---|---|
 | 封面图（TJpgDec） | 2d |
+| 补画 8 个缺失图标（pause/prev/next/note/heart/phone/bell/list） | 0.5d |
 | 硬件 EQ（ES8311 DSP 寄存器） | 1d |
 | NVS 断电续播 | 1d |
 | 省电息屏 + 低电警告 | 1d |
