@@ -93,12 +93,14 @@ class AudioOutputM5Speaker : public AudioOutput {
 - [x] M5.Speaker.begin() 后 `tone()` 能出声（证明 ES8311+功放通路活着）
 - [x] SD 放一首 MP3，桥接类跑通，**出声音质正常**（三缓冲 + 96kHz PWM）
 - [ ] 再测一首 FLAC（待验）
-- [ ] `heap` 看 PSRAM 占用（PSRAM 目前=0，待 M5.begin() 后复查）
+- [ ] `heap` 看 PSRAM 占用（M5.begin() 后应显示 ~8MB，注意 `qio_opi` 生效条件）
 
 **关键结论：**
-- `AudioOutputM5Speaker` 必须用三缓冲（tri_buffer[3]）+ ConsumeSample 满时返回 false
+- `AudioOutputM5Speaker` 三缓冲（tri_buffer[3]）是必须的——M5.Speaker playRaw() 零拷贝（只存指针到 wavinfo[2] 双槽），提交的 buffer 在播放完成前不能覆盖
 - Speaker PWM 采样率设 96kHz（默认 64kHz 音质差）
-- 不能在 flushBuf 里 while(isPlaying()) 等待，会造成缺口导致破音
+- ConsumeSample 始终返回 true（不阻塞解码器），满时 flush → playRaw() 直接提交
+- playRaw() 内部 _set_next_wav() 已有队列逻辑：一槽空立即写入，两槽满才阻塞（自然背压）
+- **根因：`while(isPlaying(_ch))` 忙等会等通道完全空闲（两槽都空），在上一段播完与下一段提交之间制造音频空白 = 卡顿**
 
 ---
 
@@ -142,6 +144,6 @@ class AudioOutputM5Speaker : public AudioOutput {
 ---
 
 ## 当天结束时应回写的文档
-- PLAN.md：勾选 Day2-3，更新"支持格式"
-- CLAUDE.md：依赖库表 ESP32-audioI2S → ESP8266Audio 1.9.7；音频约束（M5.Speaker 拥有 I2S）
-- 本文：把"待实测未知项"的结论补全
+- PLAN.md：勾选 Day2-3 ✅ 已完成，更新"支持格式"
+- CLAUDE.md：依赖库 ESP32-audioI2S → ESP8266Audio 1.9.7；音频约束（M5.Speaker 拥有 I2S，96kHz stereo，jack 无 GPIO 检测）
+- 本文：把"待实测未知项"的结论补全 ✅

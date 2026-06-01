@@ -60,7 +60,7 @@ graph TB
 ```mermaid
 graph TB
     subgraph Core0["Core 0（音频专用，不可打断）"]
-        AE[AudioEngine\nESP32-audioI2S / ES8311]
+        AE[AudioEngine\nESP8266Audio 1.9.7 / M5.Speaker]
     end
 
     subgraph Core1["Core 1（主循环）"]
@@ -98,7 +98,7 @@ graph TB
             SS[SettingsScreen]
         end
 
-        JM[JackMonitor\n3.5mm 插拔中断]
+        JM[JackMonitor\nJACK_PIN=-1 禁用\n框架就位]
     end
 
     CFG --> WIFI & PC & NM & BPS & MC & RS & BPR & DBG
@@ -115,7 +115,7 @@ graph TB
     PC  --> PS
     PL  --> BS
     SS  -->|写回| CFG
-    JM  -->|插拔事件| PC
+    JM  -->|插拔事件\n暂不可用| PC
     DBG --> LOG
     DBG --> PC & WIFI & MC & NM & RS & CFG & UI
 ```
@@ -351,7 +351,8 @@ SD 根目录/
     ├── config.txt
     ├── rss_feeds.txt
     ├── notify_filter.txt
-    └── splash.jpg              ← 可选，开屏图 240×135 JPEG
+    ├── splash.gif              ← 可选，开屏动画（优先）
+    └── splash.jpg              ← 可选，开屏静态图 240×135 JPEG（GIF 不存在时回退）
 ```
 
 **config.txt：**
@@ -519,7 +520,7 @@ reboot                   重启
 | 库 | 用途 | 条件 |
 |---|---|---|
 | M5Cardputer | 硬件初始化、键盘、ES8311 | 全程必须 |
-| ESP32-audioI2S | 音频解码 + I2S 输出 + ID3 回调 | 全程必须 |
+| ESP8266Audio 1.9.7 | 音频解码（MP3/FLAC/WAV）+ ID3 回调；I2S 输出由 M5.Speaker 驱动 | 全程必须 |
 | M5GFX | 屏幕绘图 | 全程必须 |
 | SD / FS | 文件系统 | 全程必须 |
 | NimBLE-Arduino | BLE GATT Server（推送 + 配网 + 调试） | notify_mode=ble 或 debug_ble=true |
@@ -529,4 +530,4 @@ reboot                   重启
 | HTTPClient | 拉取 RSS XML（ESP32 内置） | rss_enabled=true |
 | TJpgDec | 封面 JPEG 解码 | 后续迭代 |
 | Preferences | NVS 断电续播 | 后续迭代 |
-| Wire | I2C 写 ES8311 寄存器 | Week 1 |
+| Wire | I2C 写 ES8311 寄存器 | 已由 M5.Speaker 封装，无需手动 |

@@ -2,13 +2,13 @@
 #include <AudioOutput.h>
 #include <M5Cardputer.h>
 
-// 基于 M5Unified 官方示例 MP3_with_ESP8266Audio 的正确实现
-// 三缓冲轮换：buffer 满时 ConsumeSample 返回 false（generator 下帧重试），
-// 同时把满的 buffer 交给 Speaker DMA，切到下一个 buffer 继续填充。
-// 不等 DMA 完成，三个 buffer 保证 DMA 播一个、填一个、备一个。
+// 三缓冲无锁流水线：M5.Speaker playRaw() 是零拷贝（只存指针到 wavinfo[2] 双槽），
+// 所以必须保证提交给 Speaker 的 buffer 在播放完成前不被覆盖。
+// 三缓冲流水线：buf A 被 Speaker 持有 → buf B 已排入 Speaker → buf C 解码器正在填。
+// Speaker 波形完成一个槽后自动翻转到下一个，解码器永远不等 DMA 完成。
 class AudioOutputM5Speaker : public AudioOutput {
 public:
-    static constexpr size_t BUF_SIZE = 1536 * 2;  // 立体声交织：1536 对 × 2
+    static constexpr size_t BUF_SIZE = 1536 * 2;
 
     explicit AudioOutputM5Speaker(uint8_t channel = 0);
 
@@ -17,11 +17,9 @@ public:
     void flush() override;
     bool stop() override;
 
-    const int16_t* getBuffer() const { return _tri_buf[(_tri_idx + 2) % 3]; }
-
 private:
     uint8_t  _ch;
-    int16_t  _tri_buf[3][BUF_SIZE];  // 三缓冲，单声道
+    int16_t  _tri_buf[3][BUF_SIZE];
     size_t   _tri_idx = 0;
     size_t   _fill    = 0;
 };

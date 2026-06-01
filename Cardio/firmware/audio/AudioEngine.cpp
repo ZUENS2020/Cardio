@@ -2,6 +2,7 @@
 #include "AudioOutputM5Speaker.h"
 #include <M5Cardputer.h>
 #include <AudioFileSourceSD.h>
+#include <AudioFileSourceBuffer.h>
 #include <AudioFileSourceID3.h>
 #include <AudioGeneratorMP3.h>
 #include <AudioGeneratorFLAC.h>
@@ -14,6 +15,7 @@
 struct AudioEngine::Impl {
     AudioOutputM5Speaker* out  = nullptr;
     AudioFileSourceSD*    src  = nullptr;
+    AudioFileSourceBuffer* buf = nullptr;  // 平滑 SD 延迟毛刺
     AudioFileSourceID3*   id3  = nullptr;
     AudioGenerator*       gen  = nullptr;
     char path[256]        = {};
@@ -25,6 +27,7 @@ struct AudioEngine::Impl {
     void cleanup() {
         if (gen) { gen->stop(); delete gen; gen = nullptr; }
         if (id3) { delete id3;              id3 = nullptr; }
+        if (buf) { delete buf;              buf = nullptr; }
         if (src) { delete src;              src = nullptr; }
         path[0] = trackTitle[0] = artist[0] = album[0] = '\0';
         id3DurMs = 0;
@@ -124,13 +127,16 @@ bool AudioEngine::play(const char* path) {
                 break;
             }
         }
-        _impl->src->seek(0, SEEK_SET);  // 重置给 ID3 包装器
+        _impl->src->seek(0, SEEK_SET);  // 重置给缓冲层
     }
 
-    AudioFileSource* source = _impl->src;
+    // 16KB 预读缓冲：平滑 SD 卡偶发延迟毛刺（内部擦写 10-100ms）
+    _impl->buf = new AudioFileSourceBuffer(_impl->src, 16384);
+
+    AudioFileSource* source = _impl->buf;  // 后续 source 均从 buf 读
 
     if (strcasecmp(ext, "mp3") == 0) {
-        _impl->id3 = new AudioFileSourceID3(_impl->src);
+        _impl->id3 = new AudioFileSourceID3(_impl->buf);
         _impl->id3->RegisterMetadataCB(Impl::metadataCB, _impl);
         _impl->id3->open(path);
         source = _impl->id3;

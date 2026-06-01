@@ -10,8 +10,9 @@
 | Config | Config.h/cpp | 120 | 读写 config.txt，键值对解析 |
 | Logger | Logger.h/cpp | 120 | 分级日志，输出到 Serial / BLE NUS / SD 卡文件 |
 | DebugConsole | DebugConsole.h/cpp | 220 | 命令解析分发，Serial + BLE NUS 双通道 |
-| AudioEngine | AudioEngine.h/cpp | 150 | ESP32-audioI2S 封装，ES8311 寄存器配置，增益分级 |
-| JackMonitor | JackMonitor.h/cpp | 60 | GPIO 中断，插拔事件回调 |
+| AudioEngine | AudioEngine.h/cpp | 354 | ESP8266Audio 1.9.7 解码 + M5.Speaker playRaw() 桥接 |
+| AudioOutputM5Speaker | AudioOutputM5Speaker.h/cpp | 66 | 三缓冲零拷贝桥接 M5.Speaker，Core 0 音频任务 |
+| JackMonitor | JackMonitor.h/cpp | 60 | JACK_PIN=-1 禁用检测（ADV 无硬件 jack-detect GPIO），框架就位 |
 | PlaybackController | PlaybackController.h/cpp | 200 | 核心状态机，衔接音源/顺序/引擎 |
 | Playlist + PlayOrder | Playlist.h/cpp | 180 | 列表数据结构，5 种顺序算法（含 Fisher-Yates shuffle） |
 | LocalSource | LocalSource.h/cpp | 120 | 扫描 /Cardio/music/，构建文件夹列表 |
@@ -25,7 +26,7 @@
 | NotifyOverlay | NotifyOverlay.h/cpp | 80 | 顶部通知条，5s 计时淡出 |
 | CallScreen | CallScreen.h/cpp | 100 | 全屏来电，来源/内容显示，关闭按键 |
 | SettingsScreen | SettingsScreen.h/cpp | 150 | 运行时开关，写回 config.txt |
-| **固件合计** | | **~2610 行** | |
+| **固件合计** | | **~2680 行** | |
 
 ### Android 客户端（BLE 直推，本期）
 
@@ -110,11 +111,11 @@ reboot        重启设备
 
 ### Week 1 Day 2-3 — 固件基础层
 
-- [ ] 分区方案设为 `huge_app.csv`（默认 1.4MB 放不下所有库，需改为 3MB App 分区）
-- [ ] Config：解析 config.txt，读取所有开关和配置项，`mqtt_port` 默认 443
-- [ ] AudioEngine：ES8311 I2S 引脚确认，48kHz/24-bit，关 ALC，增益分级，DMA buffer 调优
-- [ ] JackMonitor：GPIO 边沿中断，插拔立即暂停
-- [ ] 基础播放验收：SD 卡放 FLAC，Space/←/→/音量键能用，拔耳机暂停
+- [x] 分区方案设为 `huge_app.csv`（默认 1.4MB 放不下所有库，需改为 3MB App 分区）
+- [x] Config：解析 config.txt，读取所有开关和配置项，`mqtt_port` 默认 443
+- [x] AudioEngine：ES8311 I2S 由 M5.Speaker 封装，96kHz stereo PCM，三缓冲零拷贝桥接，Core 0 独立任务
+- [x] JackMonitor：JACK_PIN=-1 禁用检测（ADV 无硬件 jack-detect GPIO），框架就位
+- [x] 基础播放验收：SD 卡 MP3 播放成功，FLAC 待验证；耳机暂停已降级（无 GPIO）
 
 **新增调试命令：**
 ```

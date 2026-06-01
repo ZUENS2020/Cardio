@@ -11,38 +11,31 @@ bool AudioOutputM5Speaker::begin() {
 }
 
 bool AudioOutputM5Speaker::ConsumeSample(int16_t sample[2]) {
-    if (_fill < BUF_SIZE) {
-        _tri_buf[_tri_idx][_fill    ] = sample[0];  // L
-        _tri_buf[_tri_idx][_fill + 1] = sample[1];  // R
-        _fill += 2;
-        return true;
+    if (_fill >= BUF_SIZE) {
+        flush();
     }
-    flush();
-    return false;
+    _tri_buf[_tri_idx][_fill    ] = sample[0];
+    _tri_buf[_tri_idx][_fill + 1] = sample[1];
+    _fill += 2;
+    return true;
 }
 
 void AudioOutputM5Speaker::flush() {
     if (_fill == 0) return;
-    // 等前一帧播完，加超时防死锁
-    uint32_t wait = 0;
-    while (M5Cardputer.Speaker.isPlaying(_ch) && wait < 1000) {
-        vTaskDelay(1);
-        wait++;
-    }
     M5Cardputer.Speaker.playRaw(
         _tri_buf[_tri_idx],
         _fill,
         (uint32_t)hertz,
-        true,   // stereo
+        true,
         1,
         _ch
     );
-    _tri_idx = (_tri_idx < 2) ? _tri_idx + 1 : 0;
+    _tri_idx = (_tri_idx + 1) % 3;
     _fill = 0;
 }
 
 bool AudioOutputM5Speaker::stop() {
-    flush();
+    _fill = 0;
     M5Cardputer.Speaker.stop(_ch);
     return true;
 }
