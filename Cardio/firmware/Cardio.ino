@@ -12,6 +12,7 @@
 #include "DebugConsole.h"
 #include "Config.h"
 #include "AudioEngine.h"
+#include "JackMonitor.h"
 
 // ── SD 卡 SPI 引脚（ADV 官方 docs 确认）────────────────────────────────────
 static constexpr int SD_SCK  = 40;
@@ -64,13 +65,21 @@ void setup() {
     audio.begin();
     audio.registerConsole();
 
-    // ── 7. DebugConsole 最后启动（打印欢迎语 + help）───────────────────────
+    // ── 7. JackMonitor ──────────────────────────────────────────────────────
+    JackMonitor& jack = JackMonitor::instance();
+    jack.onInsert([]() { AudioEngine::instance().pause(); });
+    jack.onRemove([]() { AudioEngine::instance().resume(); });
+    jack.begin();
+    jack.registerConsole();
+
+    // ── 8. DebugConsole 最后启动（打印欢迎语 + help）───────────────────────
     DebugConsole::instance().begin();
 }
 
 void loop() {
     M5Cardputer.update();                 // 键盘 / 按钮轮询
     AudioEngine::instance().update();     // 解码器驱动
+    JackMonitor::instance().update();     // 耳机插拔检测
     DebugConsole::instance().update();    // 串口命令
     delay(2);
 }
