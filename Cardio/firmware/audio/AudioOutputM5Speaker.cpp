@@ -1,7 +1,14 @@
 #include "AudioOutputM5Speaker.h"
+#include <M5Cardputer.h>
 
 AudioOutputM5Speaker::AudioOutputM5Speaker(uint8_t channel)
     : _ch(channel) {}
+
+bool AudioOutputM5Speaker::begin() {
+    _fill = 0;
+    _tri_idx = 0;
+    return true;
+}
 
 bool AudioOutputM5Speaker::ConsumeSample(int16_t sample[2]) {
     if (_fill < BUF_SIZE) {
@@ -10,20 +17,24 @@ bool AudioOutputM5Speaker::ConsumeSample(int16_t sample[2]) {
         _fill += 2;
         return true;
     }
-    // buffer 满：把当前 buffer 交给 Speaker，切下一个 buffer，返回 false
-    // ESP8266Audio generator 收到 false 后会在下帧重试这个 sample
     flush();
     return false;
 }
 
 void AudioOutputM5Speaker::flush() {
     if (_fill == 0) return;
+    // 等前一帧播完，加超时防死锁
+    uint32_t wait = 0;
+    while (M5Cardputer.Speaker.isPlaying(_ch) && wait < 1000) {
+        vTaskDelay(1);
+        wait++;
+    }
     M5Cardputer.Speaker.playRaw(
         _tri_buf[_tri_idx],
         _fill,
         (uint32_t)hertz,
         true,   // stereo
-        1,      // repeat
+        1,
         _ch
     );
     _tri_idx = (_tri_idx < 2) ? _tri_idx + 1 : 0;

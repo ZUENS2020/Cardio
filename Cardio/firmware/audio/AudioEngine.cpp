@@ -76,10 +76,37 @@ bool AudioEngine::play(const char* path) {
 
     _impl->src = new AudioFileSourceSD(path);
 
-    AudioFileSource* source = _impl->src;  // generator 使用的 source
+    // 预先从第一帧帧头估算时长（只在文件刚打开、未被解码器读取时 seek）
+    if (strcasecmp(ext, "mp3") == 0) {
+        static const uint16_t kbpsTable[16] = {0,32,40,48,56,64,80,96,112,128,160,192,224,256,320,0};
+        uint8_t buf[3] = {};
+        _impl->src->seek(0, SEEK_SET);
+        _impl->src->read(buf, 3);
+        if (buf[0]=='I' && buf[1]=='D' && buf[2]=='3') {
+            uint8_t h[7]; _impl->src->read(h, 7);
+            uint32_t skip = 10u + (((uint32_t)(h[3]&0x7f)<<21)|((uint32_t)(h[4]&0x7f)<<14)
+                                  |((uint32_t)(h[5]&0x7f)<<7)|(h[6]&0x7f));
+            _impl->src->seek(skip, SEEK_SET);
+        } else { _impl->src->seek(0, SEEK_SET); }
+        for (int i = 0; i < 4096; i++) {
+            uint8_t b; if (!_impl->src->read(&b, 1)) break;
+            if (b != 0xFF) continue;
+            uint8_t b2; if (!_impl->src->read(&b2, 1)) break;
+            if ((b2 & 0xE0) != 0xE0) continue;
+            uint8_t b3; _impl->src->read(&b3, 1);
+            int idx = (b3 >> 4) & 0x0F;
+            if (idx > 0 && idx < 15 && kbpsTable[idx] > 0) {
+                uint32_t sz = _impl->src->getSize();
+                _impl->id3DurMs = (uint32_t)((uint64_t)sz * 8 / kbpsTable[idx]);
+                break;
+            }
+        }
+        _impl->src->seek(0, SEEK_SET);  // 重置给 ID3 包装器
+    }
+
+    AudioFileSource* source = _impl->src;
 
     if (strcasecmp(ext, "mp3") == 0) {
-        // MP3：用 ID3 包装解析元数据（TIT2/TPE1/TALB/TLEN）
         _impl->id3 = new AudioFileSourceID3(_impl->src);
         _impl->id3->RegisterMetadataCB(Impl::metadataCB, _impl);
         _impl->id3->open(path);
