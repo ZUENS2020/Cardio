@@ -133,15 +133,16 @@ monitor_speed = 115200
 
 ### 依赖库
 
-| 库名 | 安装 |
-|------|------|
-| M5Cardputer | `lib_deps = m5stack/M5Cardputer` |
-| ESP32-audioI2S | `schreibfaul1/ESP32-audioI2S` |
-| NimBLE-Arduino | `h2zero/NimBLE-Arduino` |
-| PubSubClient | `knolleary/PubSubClient` |
-| arduinoWebSockets | `links2004/WebSockets` |
-| ArduinoJson | `bblanchon/ArduinoJson` |
-| TJpgDec | M5GFX 内置，无需单独安装 |
+| 库名 | 安装 | 说明 |
+|------|------|------|
+| M5Cardputer | `m5stack/M5Cardputer` | 含 M5Unified / M5GFX |
+| ESP8266Audio | `earlephilhower/ESP8266Audio@1.9.7` | **必须 1.9.7**，2.x 需 IDF5 |
+| NimBLE-Arduino | `h2zero/NimBLE-Arduino` | BLE GATT Server |
+| ArduinoJson | `bblanchon/ArduinoJson` | 通知 JSON 解析（Week 2） |
+| AnimatedGIF | `bitbank2/AnimatedGIF` | 开屏 GIF 动画（后续迭代） |
+| PubSubClient | `knolleary/PubSubClient` | MQTT（后续迭代） |
+| arduinoWebSockets | `links2004/WebSockets` | MQTT WSS（后续迭代） |
+| TJpgDec | M5GFX 内置，无需单独安装 | 开屏 JPG 回退 |
 
 ### 调试
 
@@ -224,7 +225,8 @@ curl -X POST http://localhost:8000/notify \
 ├── config.txt         ← 主配置文件
 ├── rss_feeds.txt      ← RSS 源列表（名称|URL，每行一条）
 ├── notify_filter.txt  ← 通知白名单（应用名=show|drop）
-└── splash.jpg         ← 可选，开屏图片 240×135 JPEG
+├── splash.gif         ← 可选，开屏动画 240×135 GIF（优先）
+└── splash.jpg         ← 可选，开屏静态图 240×135 JPEG（GIF 不存在时回退）
 ```
 
 `sdcard/Cardio/` 目录为模板，将内容复制到 SD 卡根目录即可。
