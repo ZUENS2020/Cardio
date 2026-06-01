@@ -90,10 +90,15 @@ class AudioOutputM5Speaker : public AudioOutput {
 - → 明天确认后，需回写 PLAN/CLAUDE.md 的"支持格式"和"依赖库"两处。
 
 **验收：**
-- [ ] M5.Speaker.begin() 后 `tone()` 能出声（证明 ES8311+功放通路活着）
-- [ ] SD 放一首 48kHz MP3，桥接类跑通，**耳机/喇叭出声不破音**
-- [ ] 再测一首 FLAC（验证 AudioGeneratorFLAC）
-- [ ] `heap` 看 PSRAM 占用，确认解码缓冲在 PSRAM 不爆 SRAM
+- [x] M5.Speaker.begin() 后 `tone()` 能出声（证明 ES8311+功放通路活着）
+- [x] SD 放一首 MP3，桥接类跑通，**出声音质正常**（三缓冲 + 96kHz PWM）
+- [ ] 再测一首 FLAC（待验）
+- [ ] `heap` 看 PSRAM 占用（PSRAM 目前=0，待 M5.begin() 后复查）
+
+**关键结论：**
+- `AudioOutputM5Speaker` 必须用三缓冲（tri_buffer[3]）+ ConsumeSample 满时返回 false
+- Speaker PWM 采样率设 96kHz（默认 64kHz 音质差）
+- 不能在 flushBuf 里 while(isPlaying()) 等待，会造成缺口导致破音
 
 ---
 
