@@ -1,0 +1,18 @@
+# Cardio — launcher-compatible 8MB layout.
+#
+# Mirrors bmorcelli Launcher's support_files/custom_8Mb.csv so the build enforces
+# the 0x150000 (1.31 MB) app-size cap that the launcher's app slot imposes — if
+# Cardio ever grows past that, THIS build fails instead of the launcher silently
+# refusing to install it. Used by [env:cardputer-adv-launcher].
+#
+# Subtype is 'factory' (not the launcher's 'test') so a launcher build flashed
+# straight over USB still boots normally; the firmware.bin is identical either
+# way (the app image is partition-offset independent), and the real launcher
+# installs it into its own dynamically-created partition regardless.
+#
+# Name,   Type, SubType, Offset,   Size,     Flags
+nvs,      data, nvs,     0x9000,   0x4000,
+otadata,  data, ota,     0xD000,   0x2000,
+phy_init, data, phy,     0xF000,   0x1000,
+factory,  app,  factory, 0x10000,  0x150000,
+coredump, data, coredump,0x160000, 0x10000,

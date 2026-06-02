@@ -5,15 +5,19 @@
 #include <M5Cardputer.h>
 #include <SPI.h>
 #include <SD.h>
+#include <esp_ota_ops.h>
+#include <esp_partition.h>
 
 #include "Logger.h"
 #include "DebugConsole.h"
 #include "Config.h"
 #include "AudioEngine.h"
+#include "Equalizer.h"
 #include "JackMonitor.h"
 #include "PlaybackController.h"
 #include "PlayerScreen.h"
 #include "BrowserScreen.h"
+#include "EqScreen.h"
 #include "SplashScreen.h"
 #include "Theme.h"
 
@@ -22,13 +26,15 @@ static constexpr int SD_MISO = 39;
 static constexpr int SD_MOSI = 14;
 static constexpr int SD_CS   = 12;
 
-enum ScreenMode { MODE_PLAYER, MODE_BROWSER };
+enum ScreenMode { MODE_PLAYER, MODE_BROWSER, MODE_EQ };
 static ScreenMode mode = MODE_PLAYER;
 
 static void handlePlayerKeys();
 static void refreshPlayerUI();
 static void syncPlayerUI();
 static void handleBrowserKeys();
+static void handleEqKeys();
+static void returnToLauncher();
 
 // Hold-to-repeat timing, shared by the volume keys and list navigation so they
 // feel identical: first press steps once instantly, then nothing until
@@ -45,6 +51,34 @@ static bool mountSD() {
     }
     Serial.printf("[BOOT] SD mounted %lluMB\n", SD.cardSize() / (1024ULL * 1024ULL));
     return true;
+}
+
+// ── Return to bmorcelli Launcher ────────────────────────────────────────────────
+// The Launcher (on ESP32-S3) relocates itself into the TEST app partition
+// (subtype 0x20) and runs from there, loading apps like Cardio into a separate
+// partition.  So we hand control back by pointing the boot partition at the
+// launcher's slot and resetting.  Auto-detected at runtime: if no launcher
+// partition exists (Cardio flashed standalone over USB), this is a safe no-op.
+static void returnToLauncher() {
+    const esp_partition_t* launcher =
+        esp_partition_find_first(ESP_PARTITION_TYPE_APP, ESP_PARTITION_SUBTYPE_APP_TEST, nullptr);
+    if (!launcher)  // some launcher configs keep it in factory instead
+        launcher = esp_partition_find_first(ESP_PARTITION_TYPE_APP, ESP_PARTITION_SUBTYPE_APP_FACTORY, nullptr);
+
+    const esp_partition_t* running = esp_ota_get_running_partition();
+    if (!launcher || launcher == running) {
+        LOG_W("SYS", "no launcher partition — staying in app (standalone build?)");
+        return;
+    }
+
+    LOG_I("SYS", "returning to launcher @ 0x%06lx", (unsigned long)launcher->address);
+    AudioEngine::instance().stop();                 // silence + flush before reboot
+    if (esp_ota_set_boot_partition(launcher) != ESP_OK) {
+        LOG_E("SYS", "set_boot_partition failed");
+        return;
+    }
+    delay(60);
+    esp_restart();
 }
 
 // ── setup ─────────────────────────────────────────────────────────────────────
@@ -77,6 +111,10 @@ void setup() {
     ae.begin();
     ae.registerConsole();
 
+    Equalizer& eq = Equalizer::instance();
+    eq.loadGainsCsv(cfg.eqGains().c_str());   // restore saved tone curve
+    eq.registerConsole();
+
     JackMonitor& jack = JackMonitor::instance();
     jack.onInsert([]() { AudioEngine::instance().pause();  });
     jack.onRemove([]() { AudioEngine::instance().resume(); });
@@ -90,6 +128,10 @@ void setup() {
     PlayerScreen::instance().begin();
     PlayerScreen::instance().setVolume(cfg.defaultVolume());
     BrowserScreen::instance().begin();
+
+    DebugConsole::instance().registerCommand(
+        "launcher", "reboot into bmorcelli Launcher",
+        [](int, char**, Print& out) { out.println("returning to launcher..."); returnToLauncher(); });
 
     DebugConsole::instance().begin();
     LOG_I("BOOT", "boot complete, heap=%u", esp_get_free_heap_size());
@@ -107,9 +149,12 @@ void loop() {
     if (mode == MODE_PLAYER) {
         handlePlayerKeys();
         refreshPlayerUI();
-    } else {
+    } else if (mode == MODE_BROWSER) {
         handleBrowserKeys();
         BrowserScreen::instance().draw();
+    } else { // MODE_EQ
+        handleEqKeys();
+        EqScreen::instance().update();
     }
 
     DebugConsole::instance().update();
@@ -166,6 +211,13 @@ static void handlePlayerKeys() {
         case '/': pc.next();        acted = true; break;
         case 'r': case 'R': pc.cycleOrder();              acted = true; break;
         case 'm': case 'M': ae.setMuted(!ae.isMuted());   acted = true; break;
+        case 'e': case 'E':                                // open the equalizer
+            EqScreen::instance().open();
+            mode = MODE_EQ;
+            return;
+        case '`':                                          // Esc (top-left) → exit to launcher
+            returnToLauncher();                            // no-op if launched standalone
+            return;
         }
     }
     if (acted) syncPlayerUI();                   // instant feedback, no throttle
@@ -252,5 +304,54 @@ static void handleBrowserKeys() {
             mode = MODE_PLAYER;
             PlayerScreen::instance().markDirty();
         }
+    }
+}
+
+// ── Equalizer mode ──────────────────────────────────────────────────────────────
+
+static void handleEqKeys() {
+    auto& kb = M5Cardputer.Keyboard;
+    auto& eq = Equalizer::instance();
+    auto& es = EqScreen::instance();
+
+    // ── Gain ±: hold-to-repeat, same feel as the volume keys ───────────────
+    // ; = boost, . = cut — the same vertical pair the player uses for volume,
+    // so muscle memory carries over. Music keeps playing while you tweak.
+    static uint32_t nextGainMs = 0;
+    bool up = kb.isKeyPressed(';');
+    bool dn = kb.isKeyPressed('.');
+    if (up != dn) {
+        uint32_t now = millis();
+        if (now >= nextGainMs) {
+            int b = es.selected();
+            eq.setBandGainDb(b, eq.bandGainDb(b) + (up ? +1 : -1));
+            es.markDirty();
+            nextGainMs = now + (nextGainMs ? REPEAT_RATE_MS : REPEAT_DELAY_MS);
+        }
+    } else {
+        nextGainMs = 0;
+    }
+
+    // ── Edge-triggered: band select / zero band / exit ─────────────────────
+    if (!kb.isChange() || !kb.isPressed()) return;
+    Keyboard_Class::KeysState ks = kb.keysState();
+
+    for (char c : ks.word) {
+        if      (c == ',') es.select(es.selected() - 1);    // band left
+        else if (c == '/') es.select(es.selected() + 1);    // band right
+        else if (c == '0') { eq.setBandGainDb(es.selected(), 0); es.markDirty(); }
+    }
+
+    if (ks.del) {
+        // Persist the tone curve only when it actually changed, then go back.
+        // Saving lives on the exit edge (rare), so the SD write can't glitch
+        // playback mid-adjust.
+        Config& cfg = Config::instance();
+        if (cfg.get("eq") != eq.gainsCsv()) {
+            cfg.set("eq", eq.gainsCsv());
+            cfg.save();
+        }
+        mode = MODE_PLAYER;
+        PlayerScreen::instance().markDirty();
     }
 }

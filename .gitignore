@@ -15,6 +15,7 @@
 **/build/
 *.bin
 *.elf
+*.ino.cpp
 
 # Python
 __pycache__/
