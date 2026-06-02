@@ -42,6 +42,7 @@ public:
     Logger::Level logLevel()      const { return _logLevel; }
     int           defaultVolume() const { return _defaultVolume; }
     const String& defaultOrder()  const { return _defaultOrder; }
+    bool          muted()         const { return _mute; }  // boot silent (classroom)
 
     // ── 通用字符串接口（控制台 / 设置页）────────────────────────────────
     String get(const String& key) const;          // 未知键返回 ""
@@ -68,4 +69,5 @@ private:
     Logger::Level _logLevel = Logger::INFO;
     int    _defaultVolume = 15;
     String _defaultOrder = "sequential";
+    bool   _mute = false;
 };

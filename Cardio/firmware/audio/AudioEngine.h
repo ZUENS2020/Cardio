@@ -1,46 +1,50 @@
 #pragma once
 #include <Arduino.h>
-#include <freertos/FreeRTOS.h>
-#include <freertos/semphr.h>
-#include <freertos/task.h>
 
 class AudioEngine {
 public:
     static AudioEngine& instance();
 
     void begin();
+
+    // Start playing a file.  Accepts absolute paths like /Cardio/music/foo/bar.mp3
     bool play(const char* path);
     void pause();
     void resume();
-    void stop();
+    void stop(); // user-initiated stop; also stops hardware channel
+
     bool isPlaying() const;
     bool isPaused()  const { return _paused; }
 
-    void    setVolume(uint8_t vol);
+    void    setVolume(uint8_t vol); // 0–21
     uint8_t volume()  const { return _volume; }
 
-    void update();           // Core 0 task 内部调用；loop() 不再需要调用
-    void registerConsole();
+    void    setMuted(bool m);       // force hardware output to 0 regardless of volume
+    bool    isMuted() const { return _muted; }
 
-    // 进度 / 元数据（供 UI 读取，跨核安全）
+    // Pump the decoder — call every loop iteration.
+    // Returns true when the current track just finished (auto-advance cue).
+    bool update();
+
     uint32_t    positionMs()   const;
     uint32_t    durationMs()   const;
     const char* currentTitle() const;
     const char* artist()       const;
     const char* album()        const;
+    const char* currentPath()  const;
+
+    void registerConsole();
 
 private:
     AudioEngine() = default;
 
+    void applyHwVolume();   // push _volume (or 0 if muted) to the speaker
+
     struct Impl;
-    Impl*   _impl   = nullptr;
-    uint8_t _volume = 15;
-    bool    _paused = false;
+    Impl*    _impl    = nullptr;
+    uint8_t  _volume  = 15;
+    bool     _muted   = false;
+    bool     _paused  = false;
     uint32_t _startMs  = 0;
     uint32_t _pausedMs = 0;
-
-    SemaphoreHandle_t _mutex      = nullptr;  // 保护 _impl 跨核访问
-    TaskHandle_t      _taskHandle = nullptr;
-
-    static void audioTask(void* arg);  // 固定在 Core 0
 };

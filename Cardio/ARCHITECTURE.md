@@ -3,7 +3,7 @@
 ## 硬件平台
 
 M5Stack Cardputer ADV
-- 主控：ESP32-S3FN8（双核 240MHz，8MB OPI PSRAM）
+- 主控：ESP32-S3FN8（双核 240MHz，8MB Flash，**无 PSRAM**，仅 512KB 内部 SRAM）
 - 音频：ES8311 编解码器 → NS4150B 功放 → 1W 扬声器 / 3.5mm 耳机
 - 显示：1.14" LCD 240×135
 - 输入：56 键键盘
@@ -81,9 +81,7 @@ graph TB
         end
 
         subgraph Player["播放器"]
-            PC[PlaybackController]
-            LS[LocalSource\n/Cardio/music/]
-            PL[Playlist + PlayOrder\n5 种顺序]
+            PC[PlaybackController\n开机全量扫描 /Cardio/music/\n内存库索引 + 5 种播放顺序\n已并入旧 LocalSource/Playlist]
         end
 
         subgraph Notify["通知系统"]
@@ -103,8 +101,7 @@ graph TB
 
     CFG --> WIFI & PC & NM & BPS & MC & RS & BPR & DBG
     WIFI --> MC & RS
-    LS --> PL --> PC
-    RS --> PL
+    RS --> PC
     PC --> AE
     BPS -->|ble 模式| NM
     MC  -->|wifi 模式| NM
@@ -113,7 +110,7 @@ graph TB
     NM  -->|NOTIFY| NO
     NM  -->|CALL| CS
     PC  --> PS
-    PL  --> BS
+    PC  --> BS
     SS  -->|写回| CFG
     JM  -->|插拔事件\n暂不可用| PC
     DBG --> LOG
@@ -350,10 +347,10 @@ SD 根目录/
     ├── logs/                   ← 自动创建，调试日志
     ├── config.txt
     ├── rss_feeds.txt
-    ├── notify_filter.txt
-    ├── splash.gif              ← 可选，开屏动画（优先）
-    └── splash.jpg              ← 可选，开屏静态图 240×135 JPEG（GIF 不存在时回退）
+    └── notify_filter.txt
 ```
+
+> 开屏动画为**纯代码绘制**（`ui/SplashScreen.cpp`），不读 SD 上的 `splash.gif/jpg`。
 
 **config.txt：**
 ```ini
@@ -503,7 +500,7 @@ log dump                 输出日志文件
 log clear                清空日志
 
 ── 系统 ────────────────────────────────
-heap                     SRAM / PSRAM 剩余
+heap                     SRAM 剩余（本板无 PSRAM）
 battery                  电池电压和百分比
 jack                     3.5mm 插拔状态
 config get <key>         读取配置项

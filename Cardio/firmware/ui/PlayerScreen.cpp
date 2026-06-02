@@ -1,6 +1,10 @@
 #include "PlayerScreen.h"
+#include "TextRender.h"
+#include "Canvas.h"
 #include <string.h>
 #include <stdio.h>
+
+using namespace theme;
 
 PlayerScreen& PlayerScreen::instance() {
     static PlayerScreen inst;
@@ -8,61 +12,69 @@ PlayerScreen& PlayerScreen::instance() {
 }
 
 void PlayerScreen::begin() {
-    _spr.setPsram(false);   // PSRAM=0 时用 SRAM
-    _spr.setColorDepth(16);
-    _spr.createSprite(W, H);
+    theme::canvas();   // ensure the shared framebuffer is allocated
     _dirty = true;
 }
 
-// ── 状态更新（任意一个变化就标脏）────────────────────────────────────────────
-void PlayerScreen::setTrackTitle(const char* title) {
-    if (strncmp(_title, title, sizeof(_title)) == 0) return;
-    strlcpy(_title, title, sizeof(_title));
+// ── State setters ──────────────────────────────────────────────────────────
+void PlayerScreen::setTrackTitle(const char* t) {
+    if (strncmp(_title, t, sizeof(_title)) == 0) return;
+    strlcpy(_title, t, sizeof(_title));
+    _dirty = true;
+}
+void PlayerScreen::setArtist(const char* a) {
+    if (strncmp(_artist, a, sizeof(_artist)) == 0) return;
+    strlcpy(_artist, a, sizeof(_artist));
+    _dirty = true;
+}
+void PlayerScreen::setAlbum(const char* a) {
+    if (strncmp(_album, a, sizeof(_album)) == 0) return;
+    strlcpy(_album, a, sizeof(_album));
+    _dirty = true;
+}
+void PlayerScreen::setFormat(const char* f) {
+    if (strncmp(_format, f, sizeof(_format)) == 0) return;
+    strlcpy(_format, f, sizeof(_format));
+    _dirty = true;
+}
+void PlayerScreen::setProgress(uint32_t p, uint32_t d) {
+    if (_posMs == p && _durMs == d) return;
+    _posMs = p; _durMs = d;
+    _dirty = true;
+}
+void PlayerScreen::setVolume(uint8_t v) {
+    if (_vol == v) return;
+    _vol = v;
+    _dirty = true;
+}
+void PlayerScreen::setMuted(bool m) {
+    if (_muted == m) return;
+    _muted = m;
+    _dirty = true;
+}
+void PlayerScreen::setPlaying(bool p) {
+    if (_playing == p) return;
+    _playing = p;
+    _dirty = true;
+}
+void PlayerScreen::setOrder(uint8_t o) {
+    if (_order == o) return;
+    _order = o;
+    _dirty = true;
+}
+void PlayerScreen::setPlaylist(const char* n) {
+    if (strncmp(_playlist, n, sizeof(_playlist)) == 0) return;
+    strlcpy(_playlist, n, sizeof(_playlist));
     _dirty = true;
 }
 
-void PlayerScreen::setArtist(const char* artist) {
-    if (strncmp(_artist, artist, sizeof(_artist)) == 0) return;
-    strlcpy(_artist, artist, sizeof(_artist));
-    _dirty = true;
-}
-
-void PlayerScreen::setAlbum(const char* album) {
-    if (strncmp(_album, album, sizeof(_album)) == 0) return;
-    strlcpy(_album, album, sizeof(_album));
-    _dirty = true;
-}
-
-void PlayerScreen::setProgress(uint32_t posMs, uint32_t durMs) {
-    if (_posMs == posMs && _durMs == durMs) return;
-    _posMs = posMs; _durMs = durMs;
-    _dirty = true;
-}
-
-void PlayerScreen::setVolume(uint8_t vol) {
-    if (_vol == vol) return;
-    _vol = vol; _dirty = true;
-}
-
-void PlayerScreen::setPlaying(bool playing) {
-    if (_playing == playing) return;
-    _playing = playing; _dirty = true;
-}
-
-void PlayerScreen::setPlaylist(const char* name) {
-    if (strncmp(_playlist, name, sizeof(_playlist)) == 0) return;
-    strlcpy(_playlist, name, sizeof(_playlist));
-    _dirty = true;
-}
-
-// ── 主更新（每帧调用）────────────────────────────────────────────────────────
 void PlayerScreen::update() {
     if (!_dirty) return;
     _dirty = false;
     draw();
 }
 
-// UTF-8 字符数截断（不在多字节序列中间截断）
+// ── UTF-8 truncation ──────────────────────────────────────────────────────
 static void truncUTF8(char* buf, size_t bufSize, const char* src, int maxChars) {
     int chars = 0;
     const char* p = src;
@@ -79,111 +91,174 @@ static void truncUTF8(char* buf, size_t bufSize, const char* src, int maxChars) 
     else      buf[len] = 0;
 }
 
-// ── 渲染（全部画到 Sprite 后一次 pushSprite）─────────────────────────────────
+// ── Draw ──────────────────────────────────────────────────────────────────
 void PlayerScreen::draw() {
-    auto& spr = _spr;
-    spr.fillScreen(C_BG);
-
-    // ── 行 1：标题 + 时间（y=2..13）─────────────────────────────────────────
-    // 时间先算宽度，留出空间给标题
-    spr.setFont(nullptr);
-    spr.setTextSize(1);
-    uint32_t pos = _posMs / 1000;
-    char timebuf[16];
-    if (_durMs > 0) {
-        uint32_t dur = _durMs / 1000;
-        snprintf(timebuf, sizeof(timebuf), "%02lu:%02lu/%02lu:%02lu",
-                 pos/60, pos%60, dur/60, dur%60);
-    } else {
-        snprintf(timebuf, sizeof(timebuf), "%02lu:%02lu", pos/60, pos%60);
-    }
-    int tw = strlen(timebuf) * 6;
-    spr.setTextColor(C_MUTED);
-    spr.setCursor(W - MARGIN - tw, 3);
-    spr.print(timebuf);
-
-    // 标题（限制在时间左侧，最多 16 个 CJK 字符）
-    spr.setFont(&fonts::efontCN_10);
-    spr.setTextColor(C_TEXT);
-    spr.setCursor(MARGIN, 2);
-    char title[64];
-    truncUTF8(title, sizeof(title), _title, 16);
-    // 限制绘制区域，不让文字覆盖时间
-    spr.setClipRect(MARGIN, 0, W - MARGIN - tw - 4, 14);
-    spr.print(title);
-    spr.clearClipRect();
-
-    // ── 分隔线 ───────────────────────────────────────────────────────────
-    spr.drawFastHLine(0, 15, W, 0x333333);
-
-    // ── 行 2：进度条（y=17..23）─────────────────────────────────────────
-    int barY = 17, barH = 5, barX = MARGIN, barW = W - MARGIN * 2;
-    spr.fillRoundRect(barX, barY, barW, barH, 2, C_BAR_BG);
-    if (_durMs > 0) {
-        int fill = (int)((uint64_t)barW * _posMs / _durMs);
-        fill = fill > barW ? barW : fill;
-        if (fill > 0) spr.fillRoundRect(barX, barY, fill, barH, 2, C_BAR_FG);
-    }
-
-    // ── 分隔线 ───────────────────────────────────────────────────────────
-    spr.drawFastHLine(0, 24, W, 0x333333);
-
-    // ── 行 3：艺术家 + VOL + 播放图标（y=26..37）────────────────────────
-    spr.setFont(&fonts::efontCN_10);
-    spr.setTextColor(C_MUTED);
-    spr.setCursor(MARGIN, 26);
-    if (_artist[0]) {
-        char artist[48];
-        truncUTF8(artist, sizeof(artist), _artist, 12);
-        spr.setClipRect(MARGIN, 24, W - 60, 14);
-        spr.print(artist);
-        spr.clearClipRect();
-    }
-
-    // VOL + 图标（右侧，ASCII 用默认字体）
-    spr.setFont(nullptr);
-    spr.setTextSize(1);
-    char volbuf[10];
-    snprintf(volbuf, sizeof(volbuf), "V%u", _vol);
-    spr.setTextColor(C_MUTED);
-    spr.setCursor(W - MARGIN - 20 - (int)strlen(volbuf)*6, 28);
-    spr.print(volbuf);
-
-    // ▶ / ‖ 图标
-    int iconX = W - MARGIN - 10, iconY = 26;
-    if (_playing) {
-        for (int i = 0; i < 9; i++)
-            spr.drawFastVLine(iconX + i/2, iconY + i/2, 9 - i, C_PRIMARY);
-    } else {
-        spr.fillRect(iconX,   iconY, 3, 9, C_PRIMARY);
-        spr.fillRect(iconX+4, iconY, 3, 9, C_PRIMARY);
-    }
-
-    // ── 分隔线 ───────────────────────────────────────────────────────────
-    spr.drawFastHLine(0, 38, W, 0x333333);
-
-    // ── 下半部：封面占位 + 专辑名（y=40..134）────────────────────────────
-    int coverY = 40, coverX = MARGIN;
-    int coverS = H - coverY - MARGIN;  // ≈ 89px
-    spr.fillRoundRect(coverX, coverY, coverS, coverS, 6, 0x1A1A2E);
-    spr.setFont(nullptr);
-    spr.setTextColor(0x2A2A4E);
-    spr.setTextSize(4);
-    spr.setCursor(coverX + coverS/2 - 12, coverY + coverS/2 - 16);
-    spr.print("J");
-
-    // 专辑名（封面右侧）
-    int infoX = coverX + coverS + MARGIN;
-    spr.setFont(&fonts::efontCN_10);
-    if (_album[0]) {
-        spr.setTextColor(C_MUTED);
-        spr.setCursor(infoX, coverY + 4);
-        char album[48];
-        truncUTF8(album, sizeof(album), _album, 10);
-        spr.setClipRect(infoX, coverY, W - infoX - MARGIN, 80);
-        spr.print(album);
-        spr.clearClipRect();
-    }
-
+    auto& spr = theme::canvas();
+    spr.fillSprite(bg);  // clear whole frame to prevent overlap
+    drawStatusbar();
+    drawBody();
     spr.pushSprite(&M5Cardputer.Display, 0, 0);
+}
+
+// ── Statusbar (16px) ─────────────────────────────────────────────────────
+void PlayerScreen::drawStatusbar() {
+    auto& spr = theme::canvas();
+    spr.fillRect(0, 0, W, statusbarH, surface1);
+
+    // Left: "CARDIO" — efontCN for potential CJK chars
+    spr.setFont(&fonts::efontJA_10);
+    spr.setTextColor(accent);
+    spr.setCursor(s, 2);
+    spr.print("CARDIO");
+
+    // Right: battery % (default font — numbers only)
+    spr.setFont(nullptr);
+    spr.setTextSize(1);
+    spr.setTextColor(fg2);
+    int bat = M5Cardputer.Power.getBatteryLevel();
+    if (bat < 0) bat = 0;
+    if (bat > 100) bat = 100;
+    char rbuf[12];
+    snprintf(rbuf, sizeof(rbuf), "%d%%", bat);
+    int rw = strlen(rbuf) * 6;
+    spr.setCursor(W - s - rw, 3);
+    spr.print(rbuf);
+
+    spr.drawFastHLine(0, statusbarH - 1, W, line);
+}
+
+// ── Body (119px) ──────────────────────────────────────────────────────────
+void PlayerScreen::drawBody() {
+    auto& spr = theme::canvas();
+    int y0 = statusbarH;   // 16
+    int y1 = H;            // 135
+    int bodyH = y1 - y0;  // 119
+
+// Element heights
+    constexpr int ptitleH = 20;
+    constexpr int partistH = 20;
+    constexpr int infoH    = 10;
+    constexpr int progH    = 16;
+    constexpr int volH     = 14;
+    constexpr int totalElH = ptitleH + partistH + infoH + progH + volH;  // 80
+    constexpr int numGaps = 5;
+    int gap = (bodyH - totalElH) / numGaps;  // (119-80)/5 = 7
+
+    int y = y0 + gap;
+
+    // ── ptitle (efontJA_10 × textSize(2) = 20px) ─────────────────────────
+    spr.setFont(&fonts::efontJA_10);
+    spr.setTextSize(2);
+    spr.setTextColor(fg0);
+    {
+        char buf[64];
+        // At textSize(2), efontCN char is ~20px wide, so max ~10 chars fit on 240px
+        truncUTF8(buf, sizeof(buf), _title, 10);
+        spr.setClipRect(s, y, W - s * 2, ptitleH);
+        spr.setCursor(s, y);
+        theme::printUtf8(spr, buf);
+        spr.clearClipRect();
+    }
+    y += ptitleH + gap;
+
+    // ── partist (efontJA_10 × textSize(2) = 20px) ──────────────────────
+    spr.setFont(&fonts::efontJA_10);
+    spr.setTextSize(2);
+    spr.setTextColor(fg1);
+    {
+        char buf[48];
+        truncUTF8(buf, sizeof(buf), _artist, 10);
+        spr.setClipRect(s, y, W - s * 2, partistH);
+        spr.setCursor(s, y);
+        theme::printUtf8(spr, buf);
+        spr.clearClipRect();
+    }
+    spr.setTextSize(1);
+    y += partistH + gap;
+
+    // ── format + order tag (default font, same row) ──────────────────────
+    spr.setFont(nullptr);
+    spr.setTextSize(1);
+    {
+        // Format on left
+        spr.setTextColor(fg2);
+        if (_format[0]) {
+            spr.setCursor(s, y + 2);
+            spr.print(_format);
+        }
+
+        // Order tag on right
+        const char* labels[] = {"SEQ", "SHF", "RPT", "R1"};
+        const char* label = (_order < 4) ? labels[_order] : "SEQ";
+        int tw = strlen(label) * 6 + s * 2;
+        int tagX = W - s - tw;
+        int tagY = y;
+        spr.fillRoundRect(tagX, tagY, tw, 12, radiusSm, surface2);
+        spr.drawRoundRect(tagX, tagY, tw, 12, radiusSm, accent);
+        spr.fillRect(tagX, tagY + 1, 2, 10, accent);
+        spr.setTextColor(accent);
+        spr.setCursor(tagX + s + 1, tagY + 2);
+        spr.print(label);
+    }
+    y += infoH + gap;
+
+    // ── progress bar (default font for times) ────────────────────────────
+    {
+        spr.setFont(nullptr);
+        spr.setTextSize(1);
+        spr.setTextColor(fg2);
+        char tl[8], tr[8];
+        unsigned int ps = (unsigned int)(_posMs / 1000);
+        unsigned int ds = (unsigned int)(_durMs / 1000);
+        snprintf(tl, sizeof(tl), "%02u:%02u", ps / 60, ps % 60);
+        snprintf(tr, sizeof(tr), "%02u:%02u", ds / 60, ds % 60);
+        int tlW = strlen(tl) * 6;
+        int trW = strlen(tr) * 6;
+        spr.setCursor(s, y + 4);
+        spr.print(tl);
+        spr.setCursor(W - s - trW, y + 4);
+        spr.print(tr);
+
+        int barX = s + tlW + s;
+        int barW = W - s * 2 - tlW - trW - s * 2;
+        int barY = y + 5;
+        int barH = 6;
+        spr.fillRoundRect(barX, barY, barW, barH, 2, surface2);
+        if (_durMs > 0) {
+            int fill = (int)((uint64_t)barW * _posMs / _durMs);
+            if (fill > barW) fill = barW;
+            if (fill > 0) spr.fillRoundRect(barX, barY, fill, barH, 2, accent);
+            int knobX = barX + fill - 2;
+            if (knobX < barX) knobX = barX;
+            if (knobX + 4 > barX + barW) knobX = barX + barW - 4;
+            spr.fillRect(knobX, barY - 1, 4, barH + 2, fg0);
+        }
+    }
+    y += progH + gap;
+
+    // ── vol bar (10 segments, each representing 2 volume steps) ─────────
+    {
+        spr.setFont(nullptr);
+        spr.setTextSize(1);
+        spr.setTextColor(_muted ? err : fg2);
+        spr.setCursor(s, y + 3);
+        spr.print(_muted ? "MUTE" : "VOL");
+        int volX = s + 26;
+        int totalSegs = 10;
+        int cellW = 10;
+        int cellH = 10;
+        int segGap = 3;
+        // Convert 0-21 volume to 0-10 segments
+        // vol=0 → 0 bars; vol>0 → at least 1 bar so non-zero vol never looks muted
+        int filled = 0;
+        if (_vol > 0) {
+            filled = (_vol * totalSegs) / 21;
+            if (filled < 1) filled = 1;
+        }
+        for (int i = 0; i < totalSegs; i++) {
+            int cx = volX + i * (cellW + segGap);
+            uint16_t col = (!_muted && i < filled) ? accent : surface3;
+            spr.fillRoundRect(cx, y + 2, cellW, cellH, 2, col);
+        }
+    }
 }

@@ -45,6 +45,7 @@ void Config::applyDefaults() {
     _logLevel = Logger::INFO;
     _defaultVolume = 15;
     _defaultOrder = "sequential";
+    _mute = false;
 }
 
 bool Config::begin() {
@@ -100,6 +101,7 @@ String Config::get(const String& k) const {
     if (k == "log_level")     return Logger::levelName(_logLevel);
     if (k == "default_volume") return String(_defaultVolume);
     if (k == "default_order") return _defaultOrder;
+    if (k == "mute")          return _mute ? "true" : "false";
     return "";
 }
 
@@ -140,6 +142,7 @@ bool Config::set(const String& k, const String& v) {
             v == "repeat_all" || v == "random") { _defaultOrder = v; return true; }
         return false;
     }
+    if (k == "mute") { if (!parseBool(v, b)) return false; _mute = b; return true; }
     return false;
 }
 
@@ -170,6 +173,7 @@ bool Config::save() {
     f.println("# 播放器");
     f.printf("default_volume=%d\n", _defaultVolume);
     f.printf("default_order=%s\n", _defaultOrder.c_str());
+    f.printf("mute=%s\n", _mute ? "true" : "false");
     f.close();
     LOG_I("CFG", "saved to %s", CONFIG_PATH);
     return true;

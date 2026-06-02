@@ -2,7 +2,6 @@
 #include "AudioOutputM5Speaker.h"
 #include <M5Cardputer.h>
 #include <AudioFileSourceSD.h>
-#include <AudioFileSourceBuffer.h>
 #include <AudioFileSourceID3.h>
 #include <AudioGeneratorMP3.h>
 #include <AudioGeneratorFLAC.h>
@@ -11,344 +10,414 @@
 #include "Logger.h"
 #include "DebugConsole.h"
 
-// ── Pimpl ──────────────────────────────────────────────────────────────────
-struct AudioEngine::Impl {
-    AudioOutputM5Speaker* out  = nullptr;
-    AudioFileSourceSD*    src  = nullptr;
-    AudioFileSourceBuffer* buf = nullptr;  // 平滑 SD 延迟毛刺
-    AudioFileSourceID3*   id3  = nullptr;
-    AudioGenerator*       gen  = nullptr;
-    char path[256]        = {};
-    char trackTitle[128]  = {};
-    char artist[128]      = {};
-    char album[128]       = {};
-    uint32_t id3DurMs     = 0;
+// ── Impl ─────────────────────────────────────────────────────────────────────
 
-    void cleanup() {
+struct AudioEngine::Impl {
+    AudioOutputM5Speaker* out = nullptr;
+    AudioFileSourceSD*    src = nullptr;
+    AudioFileSourceID3*   id3 = nullptr;
+    AudioGenerator*       gen = nullptr;
+
+    char     path[256]   = {};
+    char     title[128]  = {};
+    char     artist[128] = {};
+    char     album[128]  = {};
+    uint32_t id3DurMs    = 0;
+    uint32_t estDurMs    = 0;
+
+    // Tear down only the decode chain; 'out' persists across tracks.
+    void teardown() {
         if (gen) { gen->stop(); delete gen; gen = nullptr; }
-        if (id3) { delete id3;              id3 = nullptr; }
-        if (buf) { delete buf;              buf = nullptr; }
-        if (src) { delete src;              src = nullptr; }
-        path[0] = trackTitle[0] = artist[0] = album[0] = '\0';
-        id3DurMs = 0;
+        if (id3) {              delete id3; id3 = nullptr; }
+        if (src) {              delete src; src = nullptr; }
+        path[0] = title[0] = artist[0] = album[0] = '\0';
+        id3DurMs = estDurMs = 0;
     }
 
-    // ID3 元数据回调（定义在 Impl 内部，可访问私有成员）
-    static void metadataCB(void* cbData, const char* type, bool /*isUnicode*/, const char* str) {
-        auto* impl = (Impl*)cbData;
-        if      (strcmp(type, "TIT2") == 0) strlcpy(impl->trackTitle, str, sizeof(impl->trackTitle));
-        else if (strcmp(type, "TPE1") == 0) strlcpy(impl->artist,     str, sizeof(impl->artist));
-        else if (strcmp(type, "TALB") == 0) strlcpy(impl->album,      str, sizeof(impl->album));
-        else if (strcmp(type, "TLEN") == 0) impl->id3DurMs = (uint32_t)atol(str);
+    static void onMeta(void* cbData, const char* type, bool, const char* str) {
+        auto* s = static_cast<Impl*>(cbData);
+        if      (!strcmp(type, "TIT2")) strlcpy(s->title,  str, sizeof(s->title));
+        else if (!strcmp(type, "TPE1")) strlcpy(s->artist, str, sizeof(s->artist));
+        else if (!strcmp(type, "TALB")) strlcpy(s->album,  str, sizeof(s->album));
+        else if (!strcmp(type, "TLEN")) s->id3DurMs = (uint32_t)atol(str);
     }
 };
 
-// ── Singleton ──────────────────────────────────────────────────────────────
+// ── Singleton ─────────────────────────────────────────────────────────────────
+
 AudioEngine& AudioEngine::instance() {
     static AudioEngine inst;
     return inst;
 }
 
-// ── Core 0 音频任务 ────────────────────────────────────────────────────────
-void AudioEngine::audioTask(void* arg) {
-    auto* eng = static_cast<AudioEngine*>(arg);
-    for (;;) {
-        eng->update();
-        vTaskDelay(1);  // 1ms yield，让 Core 0 上的 WiFi/BT 任务也能运行
-    }
-}
+// ── begin ────────────────────────────────────────────────────────────────────
 
-// ── begin ──────────────────────────────────────────────────────────────────
 void AudioEngine::begin() {
-    _mutex = xSemaphoreCreateMutex();
+    _impl = new Impl();
+    // Pass raw Speaker pointer — same pattern as BrokenSignal
+    _impl->out = new AudioOutputM5Speaker(&M5Cardputer.Speaker, 0);
 
-    auto spk_cfg = M5Cardputer.Speaker.config();
-    spk_cfg.sample_rate = 96000;
-    spk_cfg.stereo = true;
-    M5Cardputer.Speaker.config(spk_cfg);
+    // Stereo + custom sample rate: configure once, then begin
+    auto spk = M5Cardputer.Speaker.config();
+    spk.stereo = true;
+    M5Cardputer.Speaker.config(spk);
     M5Cardputer.Speaker.begin();
 
-    _impl = new Impl();
-    _impl->out = new AudioOutputM5Speaker(0);
-    _impl->out->begin();
     setVolume(_volume);
-
-    // 解码任务固定在 Core 0（UI + 控制台跑 Core 1）
-    xTaskCreatePinnedToCore(
-        audioTask,
-        "audioTask",
-        12288,   // 12KB stack：FLAC 解码需要较大栈
-        this,
-        5,       // 优先级 5（高于 loop 的默认 1，低于系统任务的 24）
-        &_taskHandle,
-        0        // Core 0
-    );
-
-    LOG_I("AUDIO", "AudioEngine ready, vol=%u, stereo, task=Core0", _volume);
+    LOG_I("AUDIO", "ready vol=%u heap=%u", _volume, esp_get_free_heap_size());
 }
 
-// ── play ───────────────────────────────────────────────────────────────────
+// Read the exact track length from a FLAC STREAMINFO block.
+// Layout after the "fLaC" marker: a 4-byte metadata-block header (the first
+// block is always STREAMINFO) then the 34-byte STREAMINFO body.  At body
+// offset 10 sits a packed 64-bit field: sample_rate(20) | channels(3) |
+// bits_per_sample(5) | total_samples(36) — i.e. file bytes 18..25.
+// Returns 0 if the header can't be parsed (caller falls back to an estimate).
+static uint32_t flacDurationMs(const char* path) {
+    File f = SD.open(path);
+    if (!f) return 0;
+    uint8_t b[26];
+    int n = f.read(b, sizeof(b));
+    f.close();
+    if (n < 26) return 0;
+    if (memcmp(b, "fLaC", 4) != 0) return 0;
+    if ((b[4] & 0x7F) != 0)        return 0; // first block must be STREAMINFO
+
+    uint32_t sampleRate   = ((uint32_t)b[18] << 12) | ((uint32_t)b[19] << 4) | (b[20] >> 4);
+    uint64_t totalSamples = ((uint64_t)(b[21] & 0x0F) << 32)
+                          | ((uint64_t)b[22] << 24)
+                          | ((uint32_t)b[23] << 16)
+                          | ((uint32_t)b[24] << 8)
+                          |  (uint32_t)b[25];
+    if (sampleRate == 0 || totalSamples == 0) return 0;
+    return (uint32_t)(totalSamples * 1000ULL / sampleRate);
+}
+
+// Exact WAV length from the fmt + data chunk headers.
+// duration = data_chunk_bytes / byte_rate.  Handles arbitrary chunk ordering
+// and the word-alignment padding between chunks.  0 if it can't be parsed.
+static uint32_t wavDurationMs(const char* path) {
+    File f = SD.open(path);
+    if (!f) return 0;
+    uint8_t h[12];
+    if (f.read(h, 12) != 12 || memcmp(h, "RIFF", 4) != 0 || memcmp(h + 8, "WAVE", 4) != 0) {
+        f.close();
+        return 0;
+    }
+    uint32_t byteRate = 0, dataSize = 0;
+    uint8_t c[8];
+    while (f.read(c, 8) == 8) {
+        uint32_t csize = (uint32_t)c[4] | ((uint32_t)c[5] << 8) | ((uint32_t)c[6] << 16) | ((uint32_t)c[7] << 24);
+        if (memcmp(c, "fmt ", 4) == 0) {
+            uint8_t fmt[16];
+            uint32_t want = csize < 16 ? csize : 16;
+            if (f.read(fmt, want) != (int)want) break;
+            byteRate = (uint32_t)fmt[8] | ((uint32_t)fmt[9] << 8) | ((uint32_t)fmt[10] << 16) | ((uint32_t)fmt[11] << 24);
+            uint32_t rest = csize - want + (csize & 1);
+            if (rest) f.seek(f.position() + rest);
+        } else if (memcmp(c, "data", 4) == 0) {
+            dataSize = csize;
+            break; // have byteRate (fmt always precedes data) + dataSize
+        } else {
+            f.seek(f.position() + csize + (csize & 1)); // skip unknown chunk + pad
+        }
+    }
+    f.close();
+    if (byteRate == 0 || dataSize == 0) return 0;
+    return (uint32_t)((uint64_t)dataSize * 1000ULL / byteRate);
+}
+
+// Exact MP3 length.  Skips any ID3v2 tag, parses the first frame header, then:
+//   • VBR — reads the Xing/Info frame count → frames * samples_per_frame / rate
+//   • CBR — audio_bytes * 8 / bitrate
+// Far more accurate than a flat bytes/bitrate guess for VBR files.  0 on failure.
+static uint32_t mp3DurationMs(const char* path) {
+    File f = SD.open(path);
+    if (!f) return 0;
+    uint32_t fileSize = f.size();
+
+    uint8_t hdr[10];
+    uint32_t pos = 0;
+    if (f.read(hdr, 10) == 10 && memcmp(hdr, "ID3", 3) == 0) {
+        // ID3v2 size is 4 syncsafe bytes (7 bits each), excluding the 10B header
+        pos = 10 + (((uint32_t)(hdr[6] & 0x7F) << 21) | ((uint32_t)(hdr[7] & 0x7F) << 14)
+                  | ((uint32_t)(hdr[8] & 0x7F) << 7)  |  (uint32_t)(hdr[9] & 0x7F));
+    }
+
+    f.seek(pos);
+    uint8_t b[200];
+    int n = f.read(b, sizeof(b));
+    f.close();
+    if (n < 36) return 0;
+
+    // Find the frame sync (11 set bits): 0xFF 0xEx/0xFx
+    int o = -1;
+    for (int i = 0; i + 4 < n; ++i)
+        if (b[i] == 0xFF && (b[i + 1] & 0xE0) == 0xE0) { o = i; break; }
+    if (o < 0) return 0;
+
+    int versionBits = (b[o + 1] >> 3) & 0x03; // 0=2.5 2=2 3=1
+    int layerBits   = (b[o + 1] >> 1) & 0x03; // 1=Layer III
+    int brIndex     = (b[o + 2] >> 4) & 0x0F;
+    int srIndex     = (b[o + 2] >> 2) & 0x03;
+    int chanMode    = (b[o + 3] >> 6) & 0x03; // 3=mono
+    if (layerBits != 1 || versionBits == 1 || brIndex == 0 || brIndex == 15 || srIndex == 3)
+        return 0;
+
+    static const int kSr1[]  = {44100, 48000, 32000};
+    static const int kSr2[]  = {22050, 24000, 16000};
+    static const int kSr25[] = {11025, 12000,  8000};
+    static const int kBr1[]  = {0,32,40,48,56,64,80,96,112,128,160,192,224,256,320};
+    static const int kBr2[]  = {0, 8,16,24,32,40,48,56,64, 80, 96,112,128,144,160};
+
+    bool isV1 = (versionBits == 3);
+    int sampleRate = isV1 ? kSr1[srIndex] : (versionBits == 2 ? kSr2[srIndex] : kSr25[srIndex]);
+    int bitrate    = (isV1 ? kBr1[brIndex] : kBr2[brIndex]) * 1000; // bps
+    int spf        = isV1 ? 1152 : 576;                              // samples per frame
+
+    // Xing/Info VBR header sits after the side-info block
+    int sideInfo = isV1 ? (chanMode == 3 ? 17 : 32) : (chanMode == 3 ? 9 : 17);
+    int x = o + 4 + sideInfo;
+    if (x + 12 <= n && (memcmp(b + x, "Xing", 4) == 0 || memcmp(b + x, "Info", 4) == 0)) {
+        uint32_t flags = ((uint32_t)b[x+4] << 24) | ((uint32_t)b[x+5] << 16) | ((uint32_t)b[x+6] << 8) | b[x+7];
+        if (flags & 0x0001) {
+            uint32_t frames = ((uint32_t)b[x+8] << 24) | ((uint32_t)b[x+9] << 16) | ((uint32_t)b[x+10] << 8) | b[x+11];
+            if (frames > 0 && sampleRate > 0)
+                return (uint32_t)((uint64_t)frames * spf * 1000ULL / sampleRate);
+        }
+    }
+    if (bitrate > 0) { // CBR
+        uint32_t audioBytes = (fileSize > pos) ? (fileSize - pos) : fileSize;
+        return (uint32_t)((uint64_t)audioBytes * 8000ULL / bitrate);
+    }
+    return 0;
+}
+
+// ── play ──────────────────────────────────────────────────────────────────────
+
 bool AudioEngine::play(const char* path) {
     if (!_impl) return false;
 
-    stop();           // 先停当前播放
+    // Always stop + flush the output before building a new chain.
+    // This is safe even before first playback (flush is a no-op when empty).
+    if (_impl->gen && _impl->gen->isRunning()) _impl->gen->stop();
+    if (_impl->out) _impl->out->stop();
+    _impl->teardown();
     _paused = false;
 
-    const char* ext = strrchr(path, '.');
-    if (!ext) { LOG_E("AUDIO", "no extension: %s", path); return false; }
-    ext++;
+    const char* dot = strrchr(path, '.');
+    if (!dot) { LOG_E("AUDIO", "no ext: %s", path); return false; }
+    const char* ext = dot + 1;
 
     if (!SD.exists(path)) { LOG_E("AUDIO", "not found: %s", path); return false; }
 
-    _impl->src = new AudioFileSourceSD(path);
+    // Log free heap so we can spot OOM risk before allocating the decoder
+    uint32_t freeHeap = esp_get_free_heap_size();
+    LOG_I("AUDIO", "play: %s  heap=%u", path, freeHeap);
 
-    // 预先从第一帧帧头估算时长（只在文件刚打开、未被解码器读取时 seek）
-    if (strcasecmp(ext, "mp3") == 0) {
-        static const uint16_t kbpsTable[16] = {0,32,40,48,56,64,80,96,112,128,160,192,224,256,320,0};
-        uint8_t buf[3] = {};
-        _impl->src->seek(0, SEEK_SET);
-        _impl->src->read(buf, 3);
-        if (buf[0]=='I' && buf[1]=='D' && buf[2]=='3') {
-            uint8_t h[7]; _impl->src->read(h, 7);
-            uint32_t skip = 10u + (((uint32_t)(h[3]&0x7f)<<21)|((uint32_t)(h[4]&0x7f)<<14)
-                                  |((uint32_t)(h[5]&0x7f)<<7)|(h[6]&0x7f));
-            _impl->src->seek(skip, SEEK_SET);
-        } else { _impl->src->seek(0, SEEK_SET); }
-        for (int i = 0; i < 4096; i++) {
-            uint8_t b; if (!_impl->src->read(&b, 1)) break;
-            if (b != 0xFF) continue;
-            uint8_t b2; if (!_impl->src->read(&b2, 1)) break;
-            if ((b2 & 0xE0) != 0xE0) continue;
-            uint8_t b3; _impl->src->read(&b3, 1);
-            int idx = (b3 >> 4) & 0x0F;
-            if (idx > 0 && idx < 15 && kbpsTable[idx] > 0) {
-                uint32_t sz = _impl->src->getSize();
-                _impl->id3DurMs = (uint32_t)((uint64_t)sz * 8 / kbpsTable[idx]);
-                break;
-            }
-        }
-        _impl->src->seek(0, SEEK_SET);  // 重置给缓冲层
+    // Duration estimate from file size
+    _impl->src = new AudioFileSourceSD(path);
+    if (!_impl->src) { LOG_E("AUDIO", "SD src alloc failed"); return false; }
+
+    const uint32_t sz = _impl->src->getSize();
+    if (sz > 0) {
+        uint32_t d = 0;
+        if      (strcasecmp(ext, "wav")  == 0) { d = wavDurationMs(path);  _impl->estDurMs = d ? d : (uint32_t)((uint64_t)sz * 1000 / 176400); }
+        else if (strcasecmp(ext, "flac") == 0) { d = flacDurationMs(path); _impl->estDurMs = d ? d : (sz / 50); }
+        else if (strcasecmp(ext, "mp3")  == 0) { d = mp3DurationMs(path);  _impl->estDurMs = d ? d : (sz / 24); }
+        else                                     _impl->estDurMs = sz / 24;
     }
 
-    // 16KB 预读缓冲：平滑 SD 卡偶发延迟毛刺（内部擦写 10-100ms）
-    _impl->buf = new AudioFileSourceBuffer(_impl->src, 16384);
-
-    AudioFileSource* source = _impl->buf;  // 后续 source 均从 buf 读
+    // No AudioFileSourceBuffer — BrokenSignal reads SD directly for local files.
+    // This saves 16 KB of contiguous heap that the MP3 decoder needs.
+    AudioFileSource* src = _impl->src;
 
     if (strcasecmp(ext, "mp3") == 0) {
-        _impl->id3 = new AudioFileSourceID3(_impl->buf);
-        _impl->id3->RegisterMetadataCB(Impl::metadataCB, _impl);
-        _impl->id3->open(path);
-        source = _impl->id3;
+        _impl->id3 = new AudioFileSourceID3(_impl->src);
+        if (!_impl->id3) { _impl->teardown(); return false; }
+        _impl->id3->RegisterMetadataCB(Impl::onMeta, _impl);
+        src = _impl->id3;
         _impl->gen = new AudioGeneratorMP3();
     } else if (strcasecmp(ext, "flac") == 0) {
         _impl->gen = new AudioGeneratorFLAC();
     } else if (strcasecmp(ext, "wav") == 0) {
         _impl->gen = new AudioGeneratorWAV();
     } else {
-        LOG_E("AUDIO", "unsupported format: %s", ext);
-        _impl->cleanup();
+        LOG_E("AUDIO", "unsupported: %s", ext);
+        _impl->teardown();
         return false;
     }
 
-    if (!_impl->gen->begin(source, _impl->out)) {
-        LOG_E("AUDIO", "generator begin failed: %s", path);
-        _impl->cleanup();
+    if (!_impl->gen) {
+        LOG_E("AUDIO", "gen alloc failed (OOM?)  heap=%u", esp_get_free_heap_size());
+        _impl->teardown();
         return false;
     }
 
-    // 加锁后再挂入 generator（stop() 已经清理过了）
-    if (_mutex) xSemaphoreTake(_mutex, portMAX_DELAY);
+    // BrokenSignal calls output->begin() explicitly here, before gen->begin()
+    _impl->out->begin();
+
+    if (!_impl->gen->begin(src, _impl->out)) {
+        LOG_E("AUDIO", "gen begin failed: %s", path);
+        _impl->teardown();
+        return false;
+    }
+
     strlcpy(_impl->path, path, sizeof(_impl->path));
     _startMs  = millis();
     _pausedMs = 0;
-    if (_mutex) xSemaphoreGive(_mutex);
-
-    LOG_I("AUDIO", "playing: %s", path);
+    LOG_I("AUDIO", "started, heap=%u", esp_get_free_heap_size());
     return true;
 }
 
-// ── transport ──────────────────────────────────────────────────────────────
+// ── Transport ─────────────────────────────────────────────────────────────────
+
 void AudioEngine::pause() {
     if (!_paused) {
-        _paused = true;
-        _pausedMs = millis();  // 记录暂停开始时间
-        LOG_I("AUDIO", "paused");
+        // Stop the speaker hardware immediately (like BrokenSignal pauseAudio())
+        M5Cardputer.Speaker.stop(0);
+        _paused   = true;
+        _pausedMs = millis();
     }
 }
 
 void AudioEngine::resume() {
     if (_paused) {
-        _startMs += (millis() - _pausedMs);  // 补偿暂停时长
-        _paused = false;
-        LOG_I("AUDIO", "resumed");
+        // Reset output state before resuming decode (like BrokenSignal resumeAudio())
+        if (_impl && _impl->out) _impl->out->begin();
+        _startMs += millis() - _pausedMs;
+        _paused   = false;
     }
 }
 
 void AudioEngine::stop() {
     if (!_impl) return;
-    if (_mutex) xSemaphoreTake(_mutex, portMAX_DELAY);
-    if (_impl->gen && _impl->gen->isRunning()) {
-        _impl->out->stop();
-    }
-    _impl->cleanup();
+    if (_impl->gen && _impl->gen->isRunning()) _impl->gen->stop();
+    if (_impl->out) _impl->out->stop();
+    _impl->teardown();
     _paused = false;
-    if (_mutex) xSemaphoreGive(_mutex);
 }
 
 bool AudioEngine::isPlaying() const {
     return _impl && _impl->gen && _impl->gen->isRunning() && !_paused;
 }
 
-// ── volume ─────────────────────────────────────────────────────────────────
+// ── update ────────────────────────────────────────────────────────────────────
+
+bool AudioEngine::update() {
+    if (!_impl || !_impl->gen || _paused) return false;
+    if (!_impl->gen->isRunning())         return false;
+    if (!_impl->gen->loop()) {
+        LOG_I("AUDIO", "ended: %s", _impl->path);
+        if (_impl->out) _impl->out->stop();
+        _impl->teardown();
+        return true;
+    }
+    return false;
+}
+
+// ── Volume ───────────────────────────────────────────────────────────────────
+
 void AudioEngine::setVolume(uint8_t vol) {
     _volume = (vol > 21) ? 21 : vol;
-    // 0-21 → 0-252（M5.Speaker 接受 0-255）
-    M5Cardputer.Speaker.setVolume(_volume * 12);
+    applyHwVolume();
 }
 
-// ── update（Core 0 任务调用，mutex 保护）─────────────────────────────────
-void AudioEngine::update() {
-    if (!_impl || !_impl->gen || _paused) return;
-    if (_mutex && xSemaphoreTake(_mutex, 0) != pdTRUE) return;  // 非阻塞取锁
-    if (_impl->gen && _impl->gen->isRunning()) {
-        if (!_impl->gen->loop()) {
-            LOG_I("AUDIO", "playback ended: %s", _impl->path);
-            _impl->cleanup();
-        }
-    }
-    if (_mutex) xSemaphoreGive(_mutex);
+void AudioEngine::setMuted(bool m) {
+    _muted = m;
+    applyHwVolume();
 }
 
-// ── console commands ───────────────────────────────────────────────────────
-// ── progress getters ───────────────────────────────────────────────────────
+void AudioEngine::applyHwVolume() {
+    // The codec/amp clips well below M5.Speaker's full range, so quarter the
+    // hardware level (0–21 → 0–52 instead of 0–210) for headroom / no distortion.
+    // Muting forces it to 0 while keeping _volume so unmute restores the level.
+    M5Cardputer.Speaker.setVolume(_muted ? 0 : (_volume * 10 / 4));
+}
+
+// ── Progress ─────────────────────────────────────────────────────────────────
+
 uint32_t AudioEngine::positionMs() const {
     if (!_impl || !_impl->gen || !_impl->gen->isRunning()) return 0;
     if (_paused) return _pausedMs - _startMs;
     return millis() - _startMs;
 }
 
-// 检查字符串是否为有效 UTF-8（GBK 编码的 ID3 标签会被拒绝）
+uint32_t AudioEngine::durationMs() const {
+    if (!_impl) return 0;
+    // estDurMs is now computed exactly from the container header up front, so
+    // prefer it; fall back to the ID3 TLEN tag only if parsing failed.
+    return (_impl->estDurMs > 0) ? _impl->estDurMs : _impl->id3DurMs;
+}
+
+// ── Metadata ─────────────────────────────────────────────────────────────────
+
 static bool isValidUTF8(const char* s) {
     while (*s) {
         uint8_t c = (uint8_t)*s++;
         if (c < 0x80) continue;
-        int extra = (c < 0xE0) ? 1 : (c < 0xF0) ? 2 : 3;
-        for (int i = 0; i < extra; i++)
+        int n = (c < 0xE0) ? 1 : (c < 0xF0) ? 2 : 3;
+        for (int i = 0; i < n; ++i)
             if (((uint8_t)*s++ & 0xC0) != 0x80) return false;
     }
     return true;
 }
 
-uint32_t AudioEngine::durationMs() const {
-    if (!_impl) return 0;
-    if (_impl->id3DurMs > 0) return _impl->id3DurMs;
-    // 无 TLEN：从第一帧帧头读取实际码率，再用文件大小估算
-    if (_impl->src) {
-        uint32_t sz = _impl->src->getSize();
-        if (sz == 0) return 0;
-        static const uint16_t kbpsTable[16] = {0,32,40,48,56,64,80,96,112,128,160,192,224,256,320,0};
-        uint8_t buf[4] = {};
-        _impl->src->seek(0, SEEK_SET);
-        // 跳过可能的 ID3 头（"ID3" + 4 字节大小）
-        _impl->src->read(buf, 3);
-        if (buf[0]=='I' && buf[1]=='D' && buf[2]=='3') {
-            uint8_t h[7]; _impl->src->read(h, 7);
-            uint32_t skip = 10 + (((uint32_t)(h[3]&0x7f)<<21)|((uint32_t)(h[4]&0x7f)<<14)
-                                  |((uint32_t)(h[5]&0x7f)<<7)|(h[6]&0x7f));
-            _impl->src->seek(skip, SEEK_SET);
-        } else { _impl->src->seek(0, SEEK_SET); }
-        // 找 MP3 帧同步字 0xFF 0xEx
-        for (int i = 0; i < 4096; i++) {
-            uint8_t b; if (!_impl->src->read(&b, 1)) break;
-            if (b != 0xFF) continue;
-            uint8_t b2; if (!_impl->src->read(&b2, 1)) break;
-            if ((b2 & 0xE0) != 0xE0) continue;
-            uint8_t b3; _impl->src->read(&b3, 1);
-            int idx = (b3 >> 4) & 0x0F;
-            if (idx > 0 && idx < 15 && kbpsTable[idx] > 0) {
-                _impl->src->seek(0, SEEK_SET);
-                return (uint32_t)((uint64_t)sz * 8 / kbpsTable[idx]);
-            }
-        }
-        _impl->src->seek(0, SEEK_SET);
-        return (uint32_t)((uint64_t)sz * 8 / 128);  // 最终回退
-    }
-    return 0;
-}
-
 const char* AudioEngine::currentTitle() const {
     if (!_impl) return "";
-    // 只在 UTF-8 有效时使用 ID3 标签（拒绝 GBK 编码的标签）
-    if (_impl->trackTitle[0] && isValidUTF8(_impl->trackTitle))
-        return _impl->trackTitle;
-    // 回退：文件名（FAT32 路径始终是 UTF-8）
+    if (_impl->title[0] && isValidUTF8(_impl->title)) return _impl->title;
     if (!_impl->path[0]) return "";
-    const char* slash = strrchr(_impl->path, '/');
-    return slash ? slash + 1 : _impl->path;
+    const char* sl = strrchr(_impl->path, '/');
+    return sl ? sl + 1 : _impl->path;
 }
-
 const char* AudioEngine::artist() const {
-    if (!_impl || !_impl->artist[0]) return "";
-    return isValidUTF8(_impl->artist) ? _impl->artist : "";
+    if (!_impl || !_impl->artist[0] || !isValidUTF8(_impl->artist)) return "";
+    return _impl->artist;
+}
+const char* AudioEngine::album() const {
+    if (!_impl || !_impl->album[0]  || !isValidUTF8(_impl->album))  return "";
+    return _impl->album;
+}
+const char* AudioEngine::currentPath() const {
+    return (_impl && _impl->path[0]) ? _impl->path : "";
 }
 
-const char* AudioEngine::album() const {
-    if (!_impl || !_impl->album[0]) return "";
-    return isValidUTF8(_impl->album) ? _impl->album : "";
-}
+// ── DebugConsole ─────────────────────────────────────────────────────────────
 
 void AudioEngine::registerConsole() {
     auto& con = DebugConsole::instance();
-
-    con.registerCommand("play",
-        "play <path>  play file from SD (/Cardio/music/ prefix optional)",
-        [](int argc, char** argv, Print& out) {
-            if (argc < 2) { out.println("usage: play <path>"); return; }
-            // 把 argv[1..] 用空格拼回来，支持含空格的文件名
-            char arg[256] = {};
-            for (int i = 1; i < argc; i++) {
-                if (i > 1) strlcat(arg, " ", sizeof(arg));
-                strlcat(arg, argv[i], sizeof(arg));
-            }
-            char path[256];
-            if (arg[0] == '/')
-                strlcpy(path, arg, sizeof(path));
-            else
-                snprintf(path, sizeof(path), "/Cardio/music/%s", arg);
-            if (!AudioEngine::instance().play(path))
-                out.printf("failed: %s\n", path);
-        });
-
-    con.registerCommand("pause",  "pause playback",
-        [](int, char**, Print&) { AudioEngine::instance().pause(); });
-
-    con.registerCommand("resume", "resume playback",
-        [](int, char**, Print&) { AudioEngine::instance().resume(); });
-
-    con.registerCommand("stop",   "stop playback",
-        [](int, char**, Print&) { AudioEngine::instance().stop(); });
-
-    con.registerCommand("vol",
-        "vol [0-21]  get/set volume",
-        [](int argc, char** argv, Print& out) {
-            auto& eng = AudioEngine::instance();
-            if (argc >= 2) eng.setVolume((uint8_t)atoi(argv[1]));
-            out.printf("volume = %u\n", eng.volume());
-        });
-
-    con.registerCommand("status", "playback status",
-        [](int, char**, Print& out) {
-            auto& eng = AudioEngine::instance();
-            out.printf("playing: %s\n", eng.isPlaying() ? "yes" :
-                                         eng.isPaused() ? "paused" : "no");
-            out.printf("volume:  %u\n", eng.volume());
-        });
-
-    con.registerCommand("tone",
-        "tone  play 1kHz test tone (verify speaker)",
-        [](int, char**, Print& out) {
-            M5Cardputer.Speaker.tone(1000, 500);  // 1kHz, 500ms
-            out.println("1kHz tone 500ms");
-        });
+    con.registerCommand("play", "play <path>", [](int argc, char** argv, Print& out) {
+        if (argc < 2) { out.println("usage: play <path>"); return; }
+        char arg[256]={}, p[256]={};
+        for (int i=1;i<argc;++i) { if(i>1) strlcat(arg," ",sizeof(arg)); strlcat(arg,argv[i],sizeof(arg)); }
+        snprintf(p,sizeof(p),"%s%s",arg[0]=='/'?"":"/Cardio/music/",arg);
+        AudioEngine::instance().play(p);
+    });
+    con.registerCommand("pause",  "pause",  [](int,char**,Print&){ AudioEngine::instance().pause(); });
+    con.registerCommand("resume", "resume", [](int,char**,Print&){ AudioEngine::instance().resume(); });
+    con.registerCommand("stop",   "stop",   [](int,char**,Print&){ AudioEngine::instance().stop(); });
+    con.registerCommand("vol", "vol [0-21]", [](int argc, char** argv, Print& out) {
+        auto& e = AudioEngine::instance();
+        if (argc >= 2) e.setVolume((uint8_t)atoi(argv[1]));
+        out.printf("vol=%u\n", e.volume());
+    });
+    con.registerCommand("mute", "mute [on|off]", [](int argc, char** argv, Print& out) {
+        auto& e = AudioEngine::instance();
+        if (argc >= 2) {
+            const char* a = argv[1];
+            e.setMuted(!strcasecmp(a,"on") || !strcasecmp(a,"true") || !strcmp(a,"1"));
+        } else e.setMuted(!e.isMuted());
+        out.printf("muted=%s\n", e.isMuted() ? "y" : "n");
+    });
+    con.registerCommand("status", "status", [](int,char**,Print& out) {
+        auto& e = AudioEngine::instance();
+        out.printf("playing=%s paused=%s vol=%u pos=%lums dur=%lums heap=%u\n",
+            e.isPlaying()?"y":"n", e.isPaused()?"y":"n",
+            e.volume(),
+            (unsigned long)e.positionMs(), (unsigned long)e.durationMs(),
+            esp_get_free_heap_size());
+    });
+    con.registerCommand("tone", "1kHz 500ms", [](int,char**,Print& out) {
+        M5Cardputer.Speaker.tone(1000, 500); out.println("1kHz 500ms");
+    });
 }

@@ -1,41 +1,46 @@
 #include "AudioOutputM5Speaker.h"
-#include <M5Cardputer.h>
 
-AudioOutputM5Speaker::AudioOutputM5Speaker(uint8_t channel)
-    : _ch(channel) {}
+AudioOutputM5Speaker::AudioOutputM5Speaker(m5::Speaker_Class* spk, uint8_t ch)
+    : _spk(spk), _ch(ch), _wi(0), _wv(0) {
+    for (int i = 0; i < 3; i++) {
+        _buf[i] = new int16_t[BUF_VALS];
+        memset(_buf[i], 0, BUF_VALS * sizeof(int16_t));
+    }
+}
+
+AudioOutputM5Speaker::~AudioOutputM5Speaker() {
+    for (int i = 0; i < 3; i++) delete[] _buf[i];
+}
 
 bool AudioOutputM5Speaker::begin() {
-    _fill = 0;
-    _tri_idx = 0;
+    _wi = 0;
+    _wv = 0;
     return true;
 }
 
-bool AudioOutputM5Speaker::ConsumeSample(int16_t sample[2]) {
-    if (_fill >= BUF_SIZE) {
+bool AudioOutputM5Speaker::ConsumeSample(int16_t s[2]) {
+    if (_wv >= BUF_VALS) {
         flush();
+        return false; // generator retries this sample next loop()
     }
-    _tri_buf[_tri_idx][_fill    ] = sample[0];
-    _tri_buf[_tri_idx][_fill + 1] = sample[1];
-    _fill += 2;
+    _buf[_wi][_wv++] = s[0]; // L
+    _buf[_wi][_wv++] = s[1]; // R
     return true;
 }
 
+// Submit the current half-buffer to the speaker.
+// playRaw() returns false when its internal queue is full; we yield
+// and retry rather than blocking with delay() so FreeRTOS can run.
 void AudioOutputM5Speaker::flush() {
-    if (_fill == 0) return;
-    M5Cardputer.Speaker.playRaw(
-        _tri_buf[_tri_idx],
-        _fill,
-        (uint32_t)hertz,
-        true,
-        1,
-        _ch
-    );
-    _tri_idx = (_tri_idx + 1) % 3;
-    _fill = 0;
+    if (_wv == 0) return;
+    while (!_spk->playRaw(_buf[_wi], _wv, (uint32_t)hertz, true, 1, _ch))
+        taskYIELD();
+    _wi = (_wi < 2) ? _wi + 1 : 0;
+    _wv = 0;
 }
 
 bool AudioOutputM5Speaker::stop() {
-    _fill = 0;
-    M5Cardputer.Speaker.stop(_ch);
+    flush();
+    _spk->stop(_ch);
     return true;
 }

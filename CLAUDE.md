@@ -4,7 +4,7 @@
 
 **Cardio** 是运行在 M5Stack Cardputer ADV 上的固件，集成音乐播放器和跨平台通知推送。
 
-- 硬件：ESP32-S3（双核 240MHz，8MB OPI PSRAM），ES8311 音频编解码器，240×135 LCD
+- 硬件：ESP32-S3FN8（双核 240MHz，8MB Flash，**无 PSRAM**，仅 512KB 内部 SRAM），ES8311 音频编解码器，240×135 LCD
 - 固件语言：C++，Arduino 框架
 - 通知服务端：Python FastAPI + Mosquitto MQTT
 - 客户端：Android（Kotlin）/ macOS（Swift）/ Windows（C#）
@@ -39,10 +39,8 @@ Cardputer ADV/
 │   │   │   ├── AudioOutputM5Speaker.h/cpp  # 三缓冲零拷贝桥接 M5.Speaker
 │   │   │   └── JackMonitor.h/cpp
 │   │   ├── player/
-│   │   │   ├── PlaybackController.h/cpp
-│   │   │   ├── Playlist.h/cpp
-│   │   │   ├── LocalSource.h/cpp
-│   │   │   └── RssSource.h/cpp
+│   │   │   ├── PlaybackController.h/cpp   # 内存音乐库索引 + 播放控制（已并入旧 LocalSource/Playlist）
+│   │   │   └── RssSource.h/cpp            # RSS 拉取（后续迭代）
 │   │   ├── net/
 │   │   │   ├── WiFiManager.h/cpp
 │   │   │   ├── MqttClient.h/cpp
@@ -55,7 +53,10 @@ Cardputer ADV/
 │   │       ├── NotifyOverlay.h/cpp
 │   │       ├── CallScreen.h/cpp
 │   │       ├── SettingsScreen.h/cpp
-│   │       └── SplashScreen.h/cpp
+│   │       ├── SplashScreen.h/cpp        # 开屏（纯代码绘制，无 GIF）
+│   │       ├── Canvas.h/cpp              # Player/Browser 共用的 240×135 sprite（省 63KB）
+│   │       ├── TextRender.h/cpp          # CJK 逐字字体回退 printUtf8()
+│   │       └── Theme.h                   # 配色 / 尺寸 / Order 枚举
 │   │
 │   ├── server/                    # 服务端（待创建）
 │   │   ├── docker-compose.yml
@@ -127,7 +128,7 @@ platform = espressif32
 board = m5stack-stamps3
 framework = arduino
 board_build.partitions = huge_app.csv   ; 必须，默认分区放不下
-board_build.arduino.memory_type = qio_opi  ; 8MB OPI PSRAM
+; 无 PSRAM：不要设 memory_type=qio_opi / BOARD_HAS_PSRAM（芯片没有这颗 PSRAM）
 board_build.f_cpu = 240000000L
 monitor_speed = 115200
 ```
@@ -140,10 +141,10 @@ monitor_speed = 115200
 | ESP8266Audio | `earlephilhower/ESP8266Audio@1.9.7` | **必须 1.9.7**，2.x 需 IDF5 |
 | NimBLE-Arduino | `h2zero/NimBLE-Arduino` | BLE GATT Server |
 | ArduinoJson | `bblanchon/ArduinoJson` | 通知 JSON 解析（Week 2） |
-| AnimatedGIF | `bitbank2/AnimatedGIF` | 开屏 GIF 动画（后续迭代） |
+| AnimatedGIF | （当前未用）| 开屏曾用 GIF，现已改**纯代码绘制**（`ui/SplashScreen.cpp`）；如要 GIF 开屏再启用 |
 | PubSubClient | `knolleary/PubSubClient` | MQTT（后续迭代） |
 | arduinoWebSockets | `links2004/WebSockets` | MQTT WSS（后续迭代） |
-| TJpgDec | M5GFX 内置，无需单独安装 | 开屏 JPG 回退 |
+| TJpgDec | M5GFX 内置 | 开屏 JPG 回退（当前未用，开屏为纯代码绘制）|
 
 ### 调试
 
@@ -225,10 +226,10 @@ curl -X POST http://localhost:8000/notify \
 ├── logs/              ← 自动创建，调试日志
 ├── config.txt         ← 主配置文件
 ├── rss_feeds.txt      ← RSS 源列表（名称|URL，每行一条）
-├── notify_filter.txt  ← 通知白名单（应用名=show|drop）
-├── splash.gif         ← 可选，开屏动画 240×135 GIF（优先）
-└── splash.jpg         ← 可选，开屏静态图 240×135 JPEG（GIF 不存在时回退）
+└── notify_filter.txt  ← 通知白名单（应用名=show|drop）
 ```
+
+> 开屏动画当前为**纯代码绘制**（`ui/SplashScreen.cpp`，CARDIO + ZUENS2020 + 品牌斜条纹扫光），不读 SD 上的 `splash.gif/jpg`。早期 GIF 方案因 512KB SRAM 装不下全屏 GIF 解码而放弃（详见"关键约束"）。
 
 `sdcard/Cardio/` 目录为模板，将内容复制到 SD 卡根目录即可。
 
@@ -238,7 +239,8 @@ curl -X POST http://localhost:8000/notify \
 
 ### 硬件
 - **分区方案必须用 `huge_app.csv`**，默认 1.4MB App 分区不够
-- **PSRAM 已确认**：`board_build.arduino.memory_type = qio_opi`，8MB OPI PSRAM
+- **无 PSRAM（已核实）**：芯片是 `ESP32-S3FN8`（flash-only，无 R 后缀），官方文档/商店均无 PSRAM；运行时报 `PSRAM ID read error: 0x00000000` 即"找不到 PSRAM 芯片"。**不要**配 `qio_opi` / `BOARD_HAS_PSRAM` / `psram_type=opi`，用官方 `m5stack-stamps3` 板子即可。早期"8MB OPI PSRAM 已确认"是错误假设。
+- **内存预算只有 512KB SRAM（启动后约 170KB 可用堆）**：两个常驻屏 sprite 各 63KB（共 126KB）+ 音频解码器 ~30-40KB 已很紧；新增大块内存（如全屏 GIF、第三个 sprite）易 OOM 崩溃/重启。`setPsram(true)` 在本板无意义（M5GFX 会回退 SRAM），勿用。
 - ESP32-S3 **只有 BLE，没有 Classic Bluetooth**，不支持 A2DP 蓝牙耳机
 - 3.5mm 耳机插入时硬件自动切换扬声器/耳机路由（模拟机械开关），固件无法检测插拔事件；自动暂停功能推迟至后续迭代
 
@@ -268,7 +270,7 @@ curl -X POST http://localhost:8000/notify \
 ### UI
 - 全部使用 Sprite 离屏渲染后 `pushSprite`，避免闪烁
 - 进度条每秒更新一次（当前全屏重绘，后续优化为局部 Sprite 只推进度条区域）
-- **字体**：CJK / 日语 / 俄语统一用 `efontJA`（含汉字 + 平假名 + 片假名 + Cyrillic + Latin-1 Sup），**不用 `efontCN`**（缺日语假名和俄语）。Flash 多 +357KB，3MB 分区充裕。拉丁/数字用 JetBrains Mono VLW；像素风标题用 Silkscreen VLW。
+- **字体**：CJK 文本走 **逐字回退**（`ui/TextRender.cpp` 的 `theme::printUtf8()`）——每个码点先查 `efontCN`（简体汉字全，如 风/边），CN 没有的（平假名/片假名/西里尔/日文专用汉字如 冴）回退 `efontJA`。单用任一 efont 都会在简日混排时出豆腐方块：`efontJA` 缺简体专用字，`efontCN` 缺假名/西里尔。两个 efont 各 ~158KB 都链接进固件，3MB 分区充裕。所有渲染 CJK 的地方（PlayerScreen 标题/艺术家、BrowserScreen 文件夹/曲目/顶栏）都用 `printUtf8()` 代替 `spr.print()`。拉丁/数字用 JetBrains Mono VLW；像素风标题用 Silkscreen VLW。
 - 屏幕数量：6 个主屏（Player/Browser/Notify/Call/Settings/Splash）+ 2 个补充屏（PairingScreen BLE 配对码、NoticeScreen 无 SD/离线错误）
 - 图标：24 个像素风 16×16 图标编译进固件（`fillRect` 数组，无需 SD），另需补画 8 个（pause/prev/next/note/heart/phone/bell/list）
 

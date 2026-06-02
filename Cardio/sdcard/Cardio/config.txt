@@ -21,3 +21,4 @@ log_level=info
 # 播放器
 default_volume=15
 default_order=sequential
+mute=false            # true=开机静音（教室调试用）；运行时按 m 键切换

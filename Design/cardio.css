@@ -1,0 +1,249 @@
+/* ============================================================
+   Cardio — app-specific styles (extends cardio-kit.css)
+   Music player + notification firmware for Cardputer ADV.
+   Authored at true 240×135; scaled up via .vp wrappers.
+   ============================================================ */
+
+/* ---------- page shell (review canvas) ---------- */
+.page{
+  min-height:100vh;
+  background:#0e0f12;
+  color:var(--fg-1);
+  font-family:var(--font-mono);
+  padding:40px 32px 80px;
+  box-sizing:border-box;
+}
+.page-head{max-width:1180px;margin:0 auto 36px;}
+.page-head .kick{
+  font-family:var(--font-pixel);font-size:11px;letter-spacing:.28em;
+  color:var(--accent);text-transform:uppercase;margin:0 0 10px;
+}
+.page-head h1{
+  font-family:var(--font-mono);font-weight:800;font-size:30px;color:var(--fg-0);
+  margin:0 0 12px;letter-spacing:-.01em;
+}
+.page-head p{font-size:13px;line-height:1.6;color:var(--fg-2);max-width:680px;margin:0;}
+.page-head .specs{
+  display:flex;flex-wrap:wrap;gap:6px;margin-top:16px;
+}
+.spec{
+  font-size:11px;color:var(--fg-2);background:var(--surface-1);
+  border:1px solid var(--line);border-radius:2px;padding:3px 8px;letter-spacing:.02em;
+}
+.spec b{color:var(--cyan);font-weight:500;}
+
+.section{max-width:1180px;margin:0 auto 44px;}
+.section > h2{
+  font-family:var(--font-mono);font-size:13px;font-weight:700;color:var(--fg-0);
+  letter-spacing:.08em;text-transform:uppercase;margin:0 0 4px;
+  display:flex;align-items:baseline;gap:10px;
+}
+.section > h2 .cn{font-family:var(--font-cjk);color:var(--fg-2);font-weight:400;letter-spacing:0;}
+.section > .lead{font-size:12px;color:var(--fg-3);margin:0 0 20px;line-height:1.6;max-width:640px;}
+
+/* ---------- artboards ---------- */
+.gallery{display:flex;flex-wrap:wrap;gap:28px 26px;}
+.art{display:flex;flex-direction:column;gap:9px;}
+.art .cap{display:flex;align-items:baseline;gap:8px;}
+.art .cap .n{
+  font-size:11px;color:var(--fg-1);font-weight:700;letter-spacing:.03em;
+}
+.art .cap .cn{font-family:var(--font-cjk);font-size:11px;color:var(--fg-3);font-weight:400;}
+.art .cap .tag{
+  margin-left:auto;font-size:9px;letter-spacing:.1em;text-transform:uppercase;
+  color:var(--fg-3);border:1px solid var(--line);border-radius:1px;padding:1px 5px;
+}
+.art .desc{font-size:10px;color:var(--fg-3);line-height:1.5;max-width:calc(240px * var(--s));}
+
+/* device viewport (scaled screen) */
+.vp{
+  --s:2;
+  width:calc(240px * var(--s));
+  height:calc(135px * var(--s));
+  overflow:hidden;border-radius:4px;background:#000;
+  border:2px solid #0a0b0d;box-shadow:0 0 0 1px #000, 0 8px 24px rgba(0,0,0,.5);
+  flex:none;
+}
+.vp > .screen{transform:scale(var(--s));transform-origin:top left;}
+
+/* ---------- live device block ---------- */
+.live{
+  max-width:1180px;margin:0 auto 52px;
+  display:grid;grid-template-columns:auto 1fr;gap:36px;align-items:start;
+}
+.live .stagewrap{display:flex;flex-direction:column;gap:14px;align-items:center;}
+.live .vp{--s:3.4;cursor:pointer;transition:box-shadow .12s;}
+.live .vp.armed{box-shadow:0 0 0 1px #000, 0 0 0 3px var(--accent), 0 8px 30px rgba(0,0,0,.6);}
+
+/* console */
+.panel{
+  background:var(--surface-1);border:1px solid var(--line);border-radius:4px;
+  padding:16px 18px;
+}
+
+.console{padding-top:2px;}
+.console .lbl{
+  font-family:var(--font-mono);font-size:10px;letter-spacing:.08em;text-transform:uppercase;
+  color:var(--fg-3);margin:0 0 9px;
+}
+.console .cmds{display:flex;flex-wrap:wrap;gap:7px;}
+.cmd{
+  font-family:var(--font-mono);font-size:11px;color:var(--fg-1);
+  background:var(--surface-2);border:1px solid var(--line-bright);border-radius:2px;
+  padding:5px 9px;cursor:pointer;display:flex;align-items:center;gap:6px;
+  transition:background .1s,border-color .1s;
+}
+.cmd:hover{background:var(--surface-3);border-color:var(--accent);color:var(--fg-0);}
+.cmd .pmt{color:var(--accent);}
+.cmd .cn{font-family:var(--font-cjk);}
+
+/* ============================================================
+   PLAYER screen
+   ============================================================ */
+.player{flex:1;min-height:0;display:flex;flex-direction:column;padding:5px 7px 4px;gap:3px;overflow:hidden;}
+.player .top{display:flex;gap:8px;align-items:stretch;margin-bottom:1px;}
+
+.pmeta{flex:none;gap:3px;padding:3px 0 1px;display:flex;flex-direction:column;justify-content:center;min-width:0;}
+.pmeta .ptitle{font-size:18px;}
+.pmeta .partist{font-size:11px;}
+.ptitle{
+  font-family:var(--font-cjk-pixel),var(--font-cjk);font-size:16px;line-height:1;
+  color:var(--fg-0);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
+}
+.partist{
+  font-family:var(--font-cjk);font-size:11px;color:var(--fg-2);line-height:1;
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
+}
+.pfmt{display:flex;align-items:center;gap:5px;font-size:10px;color:var(--fg-3);font-variant-numeric:tabular-nums;}
+.pfmt .src{color:var(--cyan);}
+.pfmt .heart{color:var(--accent);width:11px;height:11px;}
+
+/* visualizer */
+.viz{display:flex;align-items:flex-end;gap:2px;height:12px;flex:none;margin-top:1px;}
+.viz i{width:3px;background:var(--accent);height:30%;transform-origin:bottom;animation:viz 700ms steps(6,end) infinite;}
+.viz.paused i{animation-play-state:paused;background:var(--fg-3);height:18%;}
+@keyframes viz{
+  0%{height:20%}15%{height:80%}30%{height:35%}45%{height:100%}
+  60%{height:45%}75%{height:70%}90%{height:25%}100%{height:55%}
+}
+.viz i:nth-child(2n){animation-duration:560ms;background:var(--accent-bright);}
+.viz i:nth-child(3n){animation-duration:820ms;}
+.viz i:nth-child(4n){animation-duration:480ms;background:var(--cyan);}
+.viz i:nth-child(5n){animation-duration:660ms;}
+
+/* progress */
+.progress{display:flex;align-items:center;gap:6px;flex:none;}
+.progress .t{font-size:10px;color:var(--fg-2);font-variant-numeric:tabular-nums;min-width:30px;}
+.progress .t.r{text-align:right;color:var(--fg-3);}
+.ptrack{position:relative;flex:1;height:4px;background:var(--surface-2);border:1px solid var(--line);border-radius:1px;}
+.ptrack .fill{position:absolute;left:0;top:0;bottom:0;background:var(--accent);}
+.ptrack .knob{position:absolute;top:-2px;width:3px;height:8px;background:var(--accent-bright);transform:translateX(-1px);}
+
+/* controls */
+.pctl{display:flex;align-items:center;gap:6px;flex:none;margin-top:auto;}
+.order-tag{
+  display:flex;align-items:center;gap:4px;font-size:10px;border:1px solid var(--line-bright);
+  border-radius:2px;padding:1px 5px;color:var(--fg-1);
+}
+.order-tag .cn{font-family:var(--font-cjk);}
+.order-tag .k{font-family:var(--font-mono);color:var(--fg-3);font-size:9px;}
+.transport{flex:1;display:flex;align-items:center;justify-content:center;gap:10px;}
+.transport .tb{display:flex;align-items:center;justify-content:center;color:var(--fg-2);}
+.transport .tb.main{
+  width:16px;height:16px;border-radius:50%;background:var(--accent);color:var(--accent-ink);
+}
+.vol{display:flex;align-items:center;gap:4px;font-size:10px;color:var(--fg-1);font-variant-numeric:tabular-nums;}
+.vol .vbar{display:flex;align-items:flex-end;gap:1px;height:9px;}
+.vol .vbar i{width:2px;background:var(--fg-3);}
+.vol .vbar i.on{background:var(--accent);}
+
+/* connection chip in statusbar */
+.netchip{display:flex;align-items:center;gap:3px;font-size:10px;letter-spacing:.04em;}
+
+/* ============================================================
+   BROWSER (playlist + tracks)
+   ============================================================ */
+.row .nowbar{width:2px;height:11px;background:var(--accent);flex:none;}
+.row .idx{font-size:10px;color:var(--fg-3);min-width:15px;font-variant-numeric:tabular-nums;}
+.row.sel .idx{color:var(--accent-ink);}
+.row .dur{font-size:10px;color:var(--fg-3);font-variant-numeric:tabular-nums;}
+.row.sel .dur{color:var(--accent-ink);}
+.rss-tag{font-size:9px;color:var(--cyan);border:1px solid var(--cyan-dim);border-radius:1px;padding:0 3px;letter-spacing:.06em;}
+.row.sel .rss-tag{color:var(--accent-ink);border-color:var(--accent-ink);}
+
+/* ============================================================
+   NOTIFY overlay (top banner — music keeps playing behind)
+   ============================================================ */
+.notify-ov{
+  position:absolute;left:0;right:0;top:0;z-index:5;transform:translateY(0);
+  background:var(--surface-2);border-bottom:1px solid var(--accent);
+  padding:5px 7px;display:flex;gap:7px;align-items:flex-start;
+}
+.notify-ov.slide{animation:slidein 110ms steps(4,end) both;}
+@keyframes slidein{from{transform:translateY(-100%)}to{transform:translateY(0)}}
+.notify-ov .nicon{flex:none;width:18px;height:18px;display:flex;align-items:center;justify-content:center;
+  background:var(--accent);border-radius:2px;color:var(--accent-ink);}
+.notify-ov .ntext{flex:1;min-width:0;display:flex;flex-direction:column;gap:2px;}
+.notify-ov .nsrc{display:flex;align-items:center;gap:6px;font-size:11px;}
+.notify-ov .nsrc .app{font-family:var(--font-cjk);font-weight:700;color:var(--fg-0);}
+.notify-ov .nsrc .time{margin-left:auto;font-size:9px;color:var(--fg-3);font-variant-numeric:tabular-nums;}
+.notify-ov .nbody{font-family:var(--font-cjk);font-size:11px;color:var(--fg-1);line-height:1.3;
+  display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;}
+.notify-ov .ncount{font-size:9px;color:var(--accent);letter-spacing:.06em;}
+
+/* ============================================================
+   CALL screen (full bleed — music paused)
+   ============================================================ */
+.call{position:absolute;inset:0;background:var(--screen-black);display:flex;flex-direction:column;z-index:6;}
+.call .ch{height:16px;flex:none;border-bottom:1px solid var(--err);display:flex;align-items:center;
+  justify-content:space-between;padding:0 6px;background:var(--err-bg);}
+.call .ch .l{display:flex;align-items:center;gap:5px;font-size:10px;letter-spacing:.12em;color:var(--err);font-weight:700;}
+.call .cmid{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:6px;padding-top:6px;}
+.call .cring{width:34px;height:34px;border-radius:50%;border:2px solid var(--err);display:flex;
+  align-items:center;justify-content:center;color:var(--err);animation:cpulse 1s steps(2,jump-none) infinite;}
+@keyframes cpulse{0%,50%{border-color:var(--err);color:var(--err)}50.01%,100%{border-color:var(--err-bg);color:var(--err-bg)}}
+.call .cname{font-family:var(--font-cjk);font-size:20px;color:var(--fg-0);line-height:1;}
+.call .cnum{font-size:11px;color:var(--fg-2);font-variant-numeric:tabular-nums;letter-spacing:.04em;}
+.call .cmid .paused{font-size:9px;color:var(--fg-3);letter-spacing:.08em;margin-top:2px;}
+.call .cfoot{height:18px;flex:none;display:flex;border-top:1px solid var(--line);}
+.call .cfoot .b{flex:1;display:flex;align-items:center;justify-content:center;gap:4px;font-size:10px;letter-spacing:.06em;}
+.call .cfoot .b.dismiss{color:var(--fg-1);}
+.call .cfoot .b + .b{border-left:1px solid var(--line);}
+.call .cfoot .b .kc{font-size:9px;color:var(--fg-3);}
+
+/* ============================================================
+   PAIRING (BLE passkey)
+   ============================================================ */
+.pair{flex:1;min-height:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:7px;padding:6px;}
+.pair .plabel{font-family:var(--font-pixel);font-size:9px;letter-spacing:.18em;color:var(--cyan);}
+.pair .pdev{font-size:11px;color:var(--fg-2);}
+.pair .pdev b{color:var(--fg-0);font-weight:500;font-variant-numeric:tabular-nums;}
+.pin{display:flex;gap:4px;}
+.pin span{
+  width:20px;height:26px;display:flex;align-items:center;justify-content:center;
+  font-family:var(--font-mono);font-weight:700;font-size:18px;color:var(--accent);
+  background:var(--surface-2);border:1px solid var(--line-bright);border-radius:2px;
+}
+.pair .phint{font-size:10px;color:var(--fg-3);font-family:var(--font-cjk);}
+
+/* ============================================================
+   NOTICE (full-screen status: no-sd / offline)
+   ============================================================ */
+.notice{flex:1;min-height:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px;padding:8px;text-align:center;}
+.notice .nbig{width:28px;height:28px;display:flex;align-items:center;justify-content:center;}
+.notice .nword{font-family:var(--font-pixel);font-size:11px;letter-spacing:.14em;}
+.notice .nsub{font-family:var(--font-cjk);font-size:11px;color:var(--fg-2);line-height:1.4;}
+
+/* ============================================================
+   BOOT splash (animated)
+   ============================================================ */
+.boot{flex:1;min-height:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px;position:relative;}
+.boot .mark{width:38px;height:38px;image-rendering:pixelated;}
+.boot .wm{font-family:var(--font-pixel);font-weight:700;font-size:18px;letter-spacing:.16em;color:var(--fg-0);}
+.boot .sub{font-family:var(--font-pixel);font-size:8px;letter-spacing:.24em;color:var(--accent);}
+.boot .bbar{width:118px;height:4px;background:var(--surface-2);border:1px solid var(--line);margin-top:4px;}
+.boot .bbar .f{height:100%;background:var(--accent);}
+.boot .blines{position:absolute;left:6px;bottom:5px;font-size:8px;color:var(--fg-3);line-height:1.35;font-variant-numeric:tabular-nums;}
+.boot .bver{position:absolute;right:6px;bottom:5px;font-size:8px;color:var(--fg-3);}
+.boot-cur{display:inline-block;width:5px;height:8px;background:var(--accent);vertical-align:middle;margin-left:2px;animation:bc 1s steps(2,jump-none) infinite;}
+@keyframes bc{0%,50%{opacity:1}50.01%,100%{opacity:0}}
