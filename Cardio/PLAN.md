@@ -6,12 +6,13 @@
 
 | 模块 | 文件 | 估算行数 | 说明 |
 |---|---|---|---|
-| 主入口 | Cardio.ino | 80 | setup/loop，模块初始化 |
+| 主入口 | Cardio.ino | 357 | setup/loop，三屏模式路由（Player/Browser/EQ），按键处理，返回 Launcher |
 | Config | Config.h/cpp | 120 | 读写 config.txt，键值对解析 |
 | Logger | Logger.h/cpp | 120 | 分级日志，输出到 Serial / BLE NUS / SD 卡文件 |
 | DebugConsole | DebugConsole.h/cpp | 220 | 命令解析分发，Serial + BLE NUS 双通道 |
-| AudioEngine | AudioEngine.h/cpp | 354 | ESP8266Audio 1.9.7 解码 + M5.Speaker playRaw() 桥接 |
-| AudioOutputM5Speaker | AudioOutputM5Speaker.h/cpp | 66 | 三缓冲零拷贝桥接 M5.Speaker，Core 0 音频任务 |
+| AudioEngine | AudioEngine.h/cpp | 515 | ESP8266Audio 1.9.7 解码 + 精确时长 + sqrt 音量曲线 + 44.1k 原生输出 |
+| AudioOutputM5Speaker | AudioOutputM5Speaker.h/cpp | 92 | 三缓冲零拷贝桥接 M5.Speaker + (L+R)/2 单声道下混；I2S 喂数任务 Core 0 |
+| Equalizer | Equalizer.h/cpp | 207 | 5 段 peaking 双二阶 IIR 均衡器（RBJ + DF2T），实时调，全平旁路零开销 |
 | JackMonitor | JackMonitor.h/cpp | 60 | JACK_PIN=-1 禁用检测（ADV 无硬件 jack-detect GPIO），框架就位 |
 | PlaybackController | PlaybackController.h/cpp | 360 | 开机全量扫描 /Cardio/music/ → 内存库索引（相对路径）+ 5 种播放顺序（Fisher-Yates）+ 引擎衔接；已并入旧 LocalSource/Playlist |
 | RssSource | RssSource.h/cpp | 180 | HTTP 拉取，轻量 XML 解析（匹配 title/enclosure） |
@@ -21,10 +22,11 @@
 | NotifyManager | NotifyManager.h/cpp | 160 | 状态机，白名单过滤，BLE/WiFi 两路输入统一路由 |
 | PlayerScreen | PlayerScreen.h/cpp | 200 | 封面、歌名、进度条、状态图标 |
 | BrowserScreen | BrowserScreen.h/cpp | 180 | 列表/文件夹/RSS 统一浏览，光标导航 |
+| EqScreen | EqScreen.h/cpp | 138 | 均衡器界面，5 段竖向推子，方向键实时调 |
 | NotifyOverlay | NotifyOverlay.h/cpp | 80 | 顶部通知条，5s 计时淡出 |
 | CallScreen | CallScreen.h/cpp | 100 | 全屏来电，来源/内容显示，关闭按键 |
 | SettingsScreen | SettingsScreen.h/cpp | 150 | 运行时开关，写回 config.txt |
-| **固件合计** | | **~2680 行** | |
+| **固件合计** | | **~3490 行** | |
 
 ### Android 客户端（BLE 直推，本期）
 
@@ -39,9 +41,9 @@
 
 | 部分 | 语言 | 行数 |
 |---|---|---|
-| 固件 | C++ | ~2610 |
+| 固件 | C++ | ~3490 |
 | Android 客户端（BLE 直推） | Kotlin | ~550 |
-| **总计** | | **~3160 行** |
+| **总计** | | **~4040 行** |
 
 > 服务端（Mosquitto + FastAPI）、MQTT 路径、Android HTTP Uploader 移至后续迭代。
 >
@@ -53,7 +55,7 @@
 
 ## 开发里程碑（2 周压缩版）
 
-精致化功能（封面、EQ、NVS 续播、省电）及服务端移至后续迭代，2 周内交付 BLE 直推可用版本。
+精致化功能（封面、NVS 续播、省电）及服务端移至后续迭代，2 周内交付 BLE 直推可用版本。（均衡器原属后续迭代，已提前用**软件 DSP** 实现，见下。）
 
 ```mermaid
 gantt
@@ -74,6 +76,12 @@ gantt
     无 PSRAM 排查 + 板子配置清理         :done, 2026-06-01, 1d
     两屏共用 sprite + 长按连发/页码      :done, 2026-06-01, 1d
 
+    section 音质 + 均衡器 + Launcher（计划外，已完成）
+    音质修复 sqrt 音量 + 44.1k/DMA/双核   :done, 2026-06-01, 1d
+    5 段 IIR 均衡器 + EqScreen 实时调      :done, 2026-06-01, 1d
+    单声道核实 + L+R 下混                :done, 2026-06-01, 1d
+    Launcher 兼容 + 返回机制 + UI/BLE 详细计划 :done, 2026-06-01, 1d
+
     section 进度
     ◆ 今天 2026-06-02                    :milestone, m0, 2026-06-02, 0d
 
@@ -91,9 +99,13 @@ gantt
     集成测试 + SettingsScreen            :t1, after w2b, 2d
 ```
 
-> 进度标记用固定日期的 **◆ 今天** 里程碑（不依赖渲染时钟，永远画在对的位置）；推进度时把它的日期往后改即可。截至 2026-06-02：Week 1 固件核心 4 项 + 计划外硬件返工全部完成，**下一步 BLE 直推**（条目标为 active）。
+> 进度标记用固定日期的 **◆ 今天** 里程碑（不依赖渲染时钟，永远画在对的位置）；推进度时把它的日期往后改即可。截至 2026-06-02：Week 1 固件核心 4 项 + 计划外硬件返工 + 音质优化/均衡器 + **Launcher 兼容**全部完成，**下一步 UI 收尾 + BLE 直推**（条目标为 active，详细实施计划见 [PLAN_UI_BLE.md](PLAN_UI_BLE.md)）。
 
-> **进度说明**（截至 2026-06-02）：Week 1 固件核心 4 项全部完成。期间因"8MB PSRAM"是错误假设（实为 ESP32-S3FN8 无 PSRAM），插入了一段计划外的硬件适配返工——音频层按 BrokenSignal 重写、MP3/WAV/FLAC 时长精确解析、CJK 逐字字体回退、开屏从 GIF 改纯代码、板子配置回退到 `m5stack-stamps3`、两屏共用一个 sprite 把可用堆从 ~150KB 提到 ~244KB。**下一步：BLE 直推（BleProvisioner + BlePushService）**，内存余量已为其备好。
+> **进度说明**（截至 2026-06-02）：Week 1 固件核心 4 项全部完成。期间因"8MB PSRAM"是错误假设（实为 ESP32-S3FN8 无 PSRAM），插入了一段计划外的硬件适配返工——音频层按 BrokenSignal 重写、MP3/WAV/FLAC 时长精确解析、CJK 逐字字体回退、开屏从 GIF 改纯代码、板子配置回退到 `m5stack-stamps3`、两屏共用一个 sprite 把可用堆从 ~150KB 提到 ~244KB。
+>
+> 随后又做了一轮**音质优化 + 均衡器**（计划外）：① 发现 M5.Speaker 把 master 音量**平方**使用，旧的线性砍音量等于把位深压没了 → 改 **sqrt 曲线** + 输出端配 **44.1k 原生 / DMA 512 / I2S 任务钉 core 0**；② 加了 **5 段 peaking IIR 软件均衡器**（`e` 键进 EqScreen 实时调，存 config `eq=`，全平时旁路零开销）；③ 核实 **ES8311 是单声道 codec**（耳机与喇叭共用单路输出，硬件无立体声），固件改 **(L+R)/2 下混**避免单声道 codec 只取左声道丢内容。三轮均已实机烧录验证、堆稳定。
+>
+> 接着做了 **bmorcelli Launcher 兼容**：新增 `cardputer-adv-launcher` 构建（`partitions_launcher.csv`，app 上限 1.31MB，当前 1.05MB 余 ~19%）+ `returnToLauncher()`（运行时找 TEST 分区设为启动重启，无 Launcher 时空操作，独立烧录安全）+ `` ` ``(Esc) 键 / `launcher` 控制台命令。**下一步：UI 收尾 + BLE 直推**——详细实施计划（每组件文件/接口/数据流/内存预算/顺序/测试）见 [PLAN_UI_BLE.md](PLAN_UI_BLE.md)，内存余量已为 BLE 备好。
 
 ---
 
@@ -127,7 +139,7 @@ reboot        重启设备
 
 - [x] 分区方案设为 `huge_app.csv`（默认 1.4MB 放不下所有库，需改为 3MB App 分区）
 - [x] Config：解析 config.txt，读取所有开关和配置项，`mqtt_port` 默认 443
-- [x] AudioEngine：ES8311 I2S 由 M5.Speaker 封装，96kHz stereo PCM，三缓冲零拷贝桥接，Core 0 独立任务
+- [x] AudioEngine：ES8311 I2S 由 M5.Speaker 封装，**44.1k 原生 + 单声道下混**（硬件单 DAC）+ sqrt 音量曲线，三缓冲零拷贝桥接，I2S 喂数任务 Core 0
 - [x] JackMonitor：JACK_PIN=-1 禁用检测（ADV 无硬件 jack-detect GPIO），框架就位
 - [x] 基础播放验收：SD 卡 MP3 播放成功，FLAC 待验证；耳机暂停已降级（无 GPIO）
 
@@ -224,7 +236,7 @@ wifi status/connect    rss refresh    rss list
 |---|---|
 | 封面图（TJpgDec） | 2d |
 | 补画 8 个缺失图标（pause/prev/next/note/heart/phone/bell/list） | 0.5d |
-| 硬件 EQ（ES8311 DSP 寄存器） | 1d |
+| ~~硬件 EQ（ES8311 DSP 寄存器）~~ → 已用**软件 5 段 IIR 均衡器**提前实现（`audio/Equalizer.cpp` + `ui/EqScreen.cpp`，`e` 键实时调，✅ 完成） | — |
 | NVS 断电续播 | 1d |
 | 省电息屏 + 低电警告 | 1d |
 | ~~自定义开屏动画（GIF/JPG）~~ → 已改**纯代码绘制**开屏（`ui/SplashScreen.cpp`，✅ 完成） | — |

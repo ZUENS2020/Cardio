@@ -4,7 +4,7 @@
 
 M5Stack Cardputer ADV
 - 主控：ESP32-S3FN8（双核 240MHz，8MB Flash，**无 PSRAM**，仅 512KB 内部 SRAM）
-- 音频：ES8311 编解码器 → NS4150B 功放 → 1W 扬声器 / 3.5mm 耳机
+- 音频：ES8311 **单声道** codec → NS4150B 单声道功放 → 1W 扬声器 / 3.5mm 耳机（共用同一路单声道输出，**硬件无立体声**）
 - 显示：1.14" LCD 240×135
 - 输入：56 键键盘
 - 存储：MicroSD 卡槽
@@ -59,8 +59,8 @@ graph TB
 
 ```mermaid
 graph TB
-    subgraph Core0["Core 0（音频专用，不可打断）"]
-        AE[AudioEngine\nESP8266Audio 1.9.7 / M5.Speaker]
+    subgraph Core0["Core 0（M5.Speaker I2S DMA 喂数任务）"]
+        SPK[M5.Speaker / ES8311\n44.1k 单声道 I2S]
     end
 
     subgraph Core1["Core 1（主循环）"]
@@ -80,8 +80,10 @@ graph TB
             RS[RssSource\nHTTP XML\nrss_enabled=true]
         end
 
-        subgraph Player["播放器"]
-            PC[PlaybackController\n开机全量扫描 /Cardio/music/\n内存库索引 + 5 种播放顺序\n已并入旧 LocalSource/Playlist]
+        subgraph Player["播放器 / 音频解码"]
+            PC[PlaybackController\n开机全量扫描 /Cardio/music/\n内存库索引 + 5 种播放顺序]
+            AE[AudioEngine\nESP8266Audio 1.9.7 解码\nsqrt 音量曲线]
+            EQ[Equalizer\n5 段 IIR + L+R 下混\n在 ConsumeSample 内]
         end
 
         subgraph Notify["通知系统"]
@@ -91,6 +93,7 @@ graph TB
         subgraph UI["UI Layer"]
             PS[PlayerScreen]
             BS[BrowserScreen]
+            ES[EqScreen\n5 段推子实时调]
             NO[NotifyOverlay]
             CS[CallScreen]
             SS[SettingsScreen]
@@ -103,6 +106,9 @@ graph TB
     WIFI --> MC & RS
     RS --> PC
     PC --> AE
+    AE --> EQ
+    EQ -->|三缓冲| SPK
+    ES -->|实时增益| EQ
     BPS -->|ble 模式| NM
     MC  -->|wifi 模式| NM
     BPR --- BPS
@@ -377,6 +383,8 @@ log_level=info        # debug | info | warn | error
 # 播放器
 default_volume=15
 default_order=sequential
+mute=false            # true 开机静音（教室用，保留音量值）
+eq=0,0,0,0,0          # 均衡器 5 段增益 dB（100/300/1k/3k/8k），范围 ±12
 ```
 
 **rss_feeds.txt：**
@@ -392,6 +400,23 @@ default_order=sequential
 支付宝=show
 微博=drop
 ```
+
+---
+
+## Launcher 兼容（bmorcelli Launcher）
+
+Cardio 可作为第三方 app 被 [bmorcelli Launcher](https://github.com/bmorcelli/Launcher) 安装运行（Launcher 已支持 Cardputer ADV）。
+
+```mermaid
+graph LR
+    L[Launcher\n运行于 TEST 分区 0x20] -->|装 app 到另一分区 重启| C[Cardio]
+    C -->|returnToLauncher 设 TEST 启动| L
+    C -.独立烧录无 TEST.-> N[空操作 留在 app]
+```
+
+- **构建**：`pio run -e cardputer-adv-launcher` → `partitions_launcher.csv`（app 槽 0x150000 = 1.31MB，编译期卡体积；当前 1.05MB）。主环境 `cardputer-adv` 仍用 `huge_app`（3MB，直接 USB 烧录）。`firmware.bin` 与分区表无关，两环境产物可互换安装
+- **返回**：`Cardio.ino::returnToLauncher()` 运行时 `esp_partition_find_first(TEST→FACTORY)` 设启动分区并 `esp_restart()`；找不到则空操作（独立烧录安全）。触发：Player `` ` ``(Esc) 键 / 控制台 `launcher` 命令 / 后续 SettingsScreen 菜单项
+- 详细计划见 [PLAN_UI_BLE.md](PLAN_UI_BLE.md)
 
 ---
 
@@ -463,13 +488,16 @@ graph LR
 **完整命令集：**
 
 ```
-── 播放 ────────────────────────────────
+── 播放 / 音频 ─────────────────────────
 play <路径>              播放指定文件
 pause / resume           暂停 / 恢复
 stop / next / prev       停止 / 切曲
-volume <0-21>            音量
-seek <秒>                跳转
+vol <0-21>               音量（sqrt 曲线 → master）
+gain [16-160]            master 音量上限（破音调小 / 太轻调大）
+eq <段 增益> | flat | show 均衡器（段 0-4，±12dB）
+mute [on|off]            静音
 status                   当前播放状态
+tone                     1kHz 500ms 测试音
 
 ── 播放列表 ────────────────────────────
 list                     列出所有播放列表
@@ -517,7 +545,7 @@ reboot                   重启
 | 库 | 用途 | 条件 |
 |---|---|---|
 | M5Cardputer | 硬件初始化、键盘、ES8311 | 全程必须 |
-| ESP8266Audio 1.9.7 | 音频解码（MP3/FLAC/WAV）+ ID3 回调；I2S 输出由 M5.Speaker 驱动 | 全程必须 |
+| ESP8266Audio 1.9.7 | 音频解码（MP3/FLAC/WAV）+ ID3 回调；输出经 Equalizer + (L+R)/2 单声道下混 → M5.Speaker 44.1k I2S | 全程必须 |
 | M5GFX | 屏幕绘图 | 全程必须 |
 | SD / FS | 文件系统 | 全程必须 |
 | NimBLE-Arduino | BLE GATT Server（推送 + 配网 + 调试） | notify_mode=ble 或 debug_ble=true |

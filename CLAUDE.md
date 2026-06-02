@@ -12,6 +12,7 @@
 详细设计见：
 - [Cardio/ARCHITECTURE.md](Cardio/ARCHITECTURE.md) — 系统架构、数据流、状态机、SD 卡结构
 - [Cardio/PLAN.md](Cardio/PLAN.md) — 开发计划、代码量、里程碑、风险点
+- [Cardio/PLAN_UI_BLE.md](Cardio/PLAN_UI_BLE.md) — **UI 收尾 + BLE 通知直推 详细实施计划**（下一步）
 - [Cardio/CLIENT_PLAN.md](Cardio/CLIENT_PLAN.md) — 三端客户端详细设计
 
 ---
@@ -35,8 +36,9 @@ Cardputer ADV/
 │   │   │   ├── Logger.h/cpp       # 日志系统
 │   │   │   └── DebugConsole.h/cpp # 串口/BLE 调试控制台
 │   │   ├── audio/
-│   │   │   ├── AudioEngine.h/cpp
-│   │   │   ├── AudioOutputM5Speaker.h/cpp  # 三缓冲零拷贝桥接 M5.Speaker
+│   │   │   ├── AudioEngine.h/cpp            # 解码 + sqrt 音量曲线 + 44.1k 原生输出
+│   │   │   ├── AudioOutputM5Speaker.h/cpp  # 三缓冲零拷贝桥接 M5.Speaker + (L+R)/2 单声道下混
+│   │   │   ├── Equalizer.h/cpp             # 5 段 peaking 双二阶 IIR 均衡器（实时，全平时旁路）
 │   │   │   └── JackMonitor.h/cpp
 │   │   ├── player/
 │   │   │   ├── PlaybackController.h/cpp   # 内存音乐库索引 + 播放控制（已并入旧 LocalSource/Playlist）
@@ -50,6 +52,7 @@ Cardputer ADV/
 │   │   └── ui/
 │   │       ├── PlayerScreen.h/cpp
 │   │       ├── BrowserScreen.h/cpp
+│   │       ├── EqScreen.h/cpp            # 均衡器界面（5 段竖向推子，方向键实时调）
 │   │       ├── NotifyOverlay.h/cpp
 │   │       ├── CallScreen.h/cpp
 │   │       ├── SettingsScreen.h/cpp
@@ -93,12 +96,16 @@ Cardputer ADV/
 # 安装（macOS 用 pipx，不要用 pip/pip3）
 brew install pipx && pipx install platformio
 
-# 编译
+# 编译（主环境：huge_app 3MB，直接 USB 烧录用）
 cd Cardio/firmware
 pio run
 
 # 编译并烧录
 pio run --target upload
+
+# 编译 bmorcelli Launcher 兼容版（分区上限 1.31MB，产出可被 Launcher 安装的 firmware.bin）
+pio run -e cardputer-adv-launcher
+#   → .pio/build/cardputer-adv-launcher/firmware.bin 拷到 SD / 用 Launcher WebUI 安装
 
 # 串口监视器（调试控制台）
 pio device monitor --baud 115200
@@ -157,6 +164,11 @@ pio device monitor --baud 115200
 # 常用调试命令
 status          # 播放状态
 heap            # 内存使用
+vol 12          # 音量 0-21（sqrt 曲线映射到 master）
+gain 80         # master 音量上限（破音调小，太轻调大；默认 80）
+eq 0 6          # 均衡器：第 0 段(100Hz) +6dB；eq flat 清平；eq show 查看
+mute on         # 静音（教室用，不丢音量值）
+launcher        # 重启回 bmorcelli Launcher（无 Launcher 时空操作）
 wifi status     # 网络状态
 log level debug # 切换日志级别
 notify 微信 测试消息  # 模拟通知
@@ -242,12 +254,15 @@ curl -X POST http://localhost:8000/notify \
 - **无 PSRAM（已核实）**：芯片是 `ESP32-S3FN8`（flash-only，无 R 后缀），官方文档/商店均无 PSRAM；运行时报 `PSRAM ID read error: 0x00000000` 即"找不到 PSRAM 芯片"。**不要**配 `qio_opi` / `BOARD_HAS_PSRAM` / `psram_type=opi`，用官方 `m5stack-stamps3` 板子即可。早期"8MB OPI PSRAM 已确认"是错误假设。
 - **内存预算只有 512KB SRAM（启动后约 170KB 可用堆）**：两个常驻屏 sprite 各 63KB（共 126KB）+ 音频解码器 ~30-40KB 已很紧；新增大块内存（如全屏 GIF、第三个 sprite）易 OOM 崩溃/重启。`setPsram(true)` 在本板无意义（M5GFX 会回退 SRAM），勿用。
 - ESP32-S3 **只有 BLE，没有 Classic Bluetooth**，不支持 A2DP 蓝牙耳机
-- 3.5mm 耳机插入时硬件自动切换扬声器/耳机路由（模拟机械开关），固件无法检测插拔事件；自动暂停功能推迟至后续迭代
+- 3.5mm 耳机插入时硬件自动切换扬声器/耳机路由（模拟机械开关，**与喇叭共用同一路单声道输出 → 耳机也是单声道**，详见"音频"），固件无法检测插拔事件；自动暂停功能推迟至后续迭代
 
 ### 音频
 - 音频库：**ESP8266Audio 1.9.7 + M5.Speaker**（M5Unified 拥有 ES8311+I2S，解码器只解码，通过 AudioOutputM5Speaker 三缓冲零拷贝桥接 playRaw）
 - **不用** ESP32-audioI2S（不配 ES8311 寄存器，且新版依赖 IDF5）
-- I2S 输出 96kHz stereo（M5.Speaker PWM），所有格式都会重采样到 96kHz
+- **输出端配置**（`AudioEngine::begin()`）：原生 **44.1kHz**（多数 rip 是 CD 率，M5 重采样器 1:1 直通免插值损失）、`dma_buf_len=512`（扛住刷屏 `pushSprite` 的 20-30ms 卡顿，不爆破音）、I2S 喂数任务钉 **core 0**（解码在 core 1 的 Arduino loop，两核分离互不饿死）。早期写的"96kHz stereo / PWM"已过时。
+- **单声道硬件（已核实）**：ES8311 是**单 DAC 单声道 codec** + NS4150B 单声道功放 + 1 个 8Ω@1W 喇叭，耳机口经机械开关**共用这一路** → **左右声道在硬件层无法分开**，任何固件都变不出立体声。固件在 `AudioOutputM5Speaker::ConsumeSample` 里做 **(L+R)/2 下混**再输出（否则单声道 codec 默认只取左声道，会丢掉右声道独奏的内容），EQ 也只滤这一路省一半算力。
+- **音量曲线**：M5.Speaker 内部把 master_volume **平方**使用（`Speaker_Class.cpp`: `volume = magnification * master * master`）。所以 `applyHwVolume()` 用 **sqrt 预补偿**（`master = √(vol/21) * _volCeiling`）抵消它，使 0-21 档听感线性、数字电平（位深）尽量顶高；`_volCeiling` 默认 80，`gain` 命令可现场调（破音调小 / 太轻调大）。**别用线性映射 `_volume*k`**——平方后会把位深压到最低几 bit，发薄发糊发噪。
+- **均衡器**：5 段 peaking 双二阶 IIR（`audio/Equalizer.cpp`，RBJ 公式 + DF2T 结构），频段 100/300/1k/3k/8k Hz，每段 ±12dB，**全 0dB 时整级旁路零开销**。插在 `ConsumeSample`（core 1，与解码同任务，无需加锁）；跟轨采样率自动重算系数；存 config `eq=` 键；播放器按 `e` 进 `EqScreen` 方向键实时调（`,/`选段 `;.`增益 `0`归零 `Del`存盘返回）。
 - 支持格式：MP3 / FLAC / WAV（AAC / Opus 待实机确认；OGG Vorbis / M4A 无解码器，不支持）
 - 不支持：WMA、APE、OGG Vorbis、M4A 容器（无嵌入式解码器）
 
@@ -271,8 +286,14 @@ curl -X POST http://localhost:8000/notify \
 - 全部使用 Sprite 离屏渲染后 `pushSprite`，避免闪烁
 - 进度条每秒更新一次（当前全屏重绘，后续优化为局部 Sprite 只推进度条区域）
 - **字体**：CJK 文本走 **逐字回退**（`ui/TextRender.cpp` 的 `theme::printUtf8()`）——每个码点先查 `efontCN`（简体汉字全，如 风/边），CN 没有的（平假名/片假名/西里尔/日文专用汉字如 冴）回退 `efontJA`。单用任一 efont 都会在简日混排时出豆腐方块：`efontJA` 缺简体专用字，`efontCN` 缺假名/西里尔。两个 efont 各 ~158KB 都链接进固件，3MB 分区充裕。所有渲染 CJK 的地方（PlayerScreen 标题/艺术家、BrowserScreen 文件夹/曲目/顶栏）都用 `printUtf8()` 代替 `spr.print()`。拉丁/数字用 JetBrains Mono VLW；像素风标题用 Silkscreen VLW。
-- 屏幕数量：6 个主屏（Player/Browser/Notify/Call/Settings/Splash）+ 2 个补充屏（PairingScreen BLE 配对码、NoticeScreen 无 SD/离线错误）
+- 屏幕数量：7 个主屏（Player/Browser/**EQ**/Notify/Call/Settings/Splash）+ 2 个补充屏（PairingScreen BLE 配对码、NoticeScreen 无 SD/离线错误）。`EqScreen` 与 Player/Browser 共用 `theme::canvas()` 那块 sprite，进出靠 `markDirty()` 重绘
 - 图标：24 个像素风 16×16 图标编译进固件（`fillRect` 数组，无需 SD），另需补画 8 个（pause/prev/next/note/heart/phone/bell/list）
+
+### Launcher 兼容（bmorcelli Launcher）
+- 仓库已更名 `bmorcelli/Launcher`，**支持 Cardputer ADV**；它把 app 装进 **TEST 分区（subtype 0x20，0x150000=1.31MB）**，自己（ESP32-S3）也重定位到 TEST 运行，再把第三方 app 装到另一分区
+- **构建**：`pio run -e cardputer-adv-launcher` → 用 `partitions_launcher.csv`（app 上限 1.31MB，编译期卡体积）。当前 1.05MB，余 ~19%。主环境仍是 `huge_app`（3MB，直接 USB 烧录用）
+- **返回 Launcher**：`Cardio.ino` 的 `returnToLauncher()` 运行时找 TEST（找不到再找 FACTORY）分区设为启动并重启；**无 Launcher 分区时为空操作**（独立 USB 烧录安全，不会乱重启）。触发：Player 按 `` ` ``(Esc) 键 或 控制台 `launcher` 命令。`firmware.bin` 与分区表无关（app 镜像位置无关），两环境产物可互换安装
+- 后续 SettingsScreen 会加"Exit to Launcher"菜单项（见 [PLAN_UI_BLE.md](Cardio/PLAN_UI_BLE.md)）
 
 ---
 
