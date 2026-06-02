@@ -22,3 +22,4 @@ log_level=info
 default_volume=15
 default_order=sequential
 mute=false            # true=开机静音（教室调试用）；运行时按 m 键切换
+eq=0,0,0,0,0          # 均衡器 5 段增益 dB（100/300/1k/3k/8k），±12；按 e 进界面实时调
