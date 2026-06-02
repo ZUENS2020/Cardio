@@ -1,4 +1,5 @@
 #include "AudioOutputM5Speaker.h"
+#include "Equalizer.h"
 
 AudioOutputM5Speaker::AudioOutputM5Speaker(m5::Speaker_Class* spk, uint8_t ch)
     : _spk(spk), _ch(ch), _wi(0), _wv(0) {
@@ -15,6 +16,13 @@ AudioOutputM5Speaker::~AudioOutputM5Speaker() {
 bool AudioOutputM5Speaker::begin() {
     _wi = 0;
     _wv = 0;
+    Equalizer::instance().resetState();   // drop filter history from the last track
+    return true;
+}
+
+bool AudioOutputM5Speaker::SetRate(int hz) {
+    hertz = hz;
+    Equalizer::instance().setSampleRate((uint32_t)hz);
     return true;
 }
 
@@ -23,8 +31,15 @@ bool AudioOutputM5Speaker::ConsumeSample(int16_t s[2]) {
         flush();
         return false; // generator retries this sample next loop()
     }
-    _buf[_wi][_wv++] = s[0]; // L
-    _buf[_wi][_wv++] = s[1]; // R
+    // The Cardputer ADV's ES8311 is a single-DAC *mono* codec; the speaker and the
+    // 3.5mm jack share that one output (mechanical switch), so true stereo is
+    // physically impossible. Fold L+R to a single mono sum (>>1 avoids overflow)
+    // so nothing panned hard to one side is lost — the codec would otherwise pick
+    // only one I2S slot — then EQ-filter that one channel and write it to both.
+    int16_t m = Equalizer::instance().processMono(
+                    (int16_t)(((int32_t)s[0] + (int32_t)s[1]) >> 1));
+    _buf[_wi][_wv++] = m; // L
+    _buf[_wi][_wv++] = m; // R (identical → full mix regardless of codec slot pick)
     return true;
 }
 

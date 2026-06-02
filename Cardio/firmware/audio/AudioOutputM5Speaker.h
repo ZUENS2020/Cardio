@@ -18,7 +18,7 @@ public:
     void flush()                     override; // submit current buffer, rotate
     bool stop()                      override; // flush + Speaker::stop
 
-    bool SetRate(int hz)     override { hertz    = hz; return true; }
+    bool SetRate(int hz)     override; // also retunes the equalizer to this rate
     bool SetChannels(int ch) override { channels = ch; return true; }
     bool SetBitsPerSample(int)       { return true; }
 

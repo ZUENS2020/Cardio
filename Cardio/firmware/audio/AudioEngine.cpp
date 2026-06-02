@@ -57,9 +57,21 @@ void AudioEngine::begin() {
     // Pass raw Speaker pointer — same pattern as BrokenSignal
     _impl->out = new AudioOutputM5Speaker(&M5Cardputer.Speaker, 0);
 
-    // Stereo + custom sample rate: configure once, then begin
+    // Output tuning — the defaults are aimed at short beeps, not music.
+    //  • sample_rate 44100: most rips are CD-rate, so matching it means M5's
+    //    per-channel resampler passes them through 1:1 (bit-perfect, no linear
+    //    interpolation rolloff). 48k/96k content still downsamples cleanly.
+    //  • dma_buf_len 512: bigger I2S blocks ride out the ~20–30ms LCD pushSprite
+    //    stalls without the DMA underrunning into clicks/gaps.
+    //  • task_pinned_core 0: feed I2S on the PRO core while the decoder runs on
+    //    the APP core (Arduino loop), so neither starves the other.
     auto spk = M5Cardputer.Speaker.config();
-    spk.stereo = true;
+    spk.stereo           = true;
+    spk.sample_rate      = 44100;
+    spk.dma_buf_len      = 512;
+    spk.dma_buf_count    = 8;
+    spk.task_priority    = 2;
+    spk.task_pinned_core = 0;
     M5Cardputer.Speaker.config(spk);
     M5Cardputer.Speaker.begin();
 
@@ -328,11 +340,29 @@ void AudioEngine::setMuted(bool m) {
     applyHwVolume();
 }
 
+void AudioEngine::setGainCeiling(uint8_t c) {
+    _volCeiling = c;
+    applyHwVolume();   // re-map the current step against the new ceiling
+}
+
 void AudioEngine::applyHwVolume() {
-    // The codec/amp clips well below M5.Speaker's full range, so quarter the
-    // hardware level (0–21 → 0–52 instead of 0–210) for headroom / no distortion.
-    // Muting forces it to 0 while keeping _volume so unmute restores the level.
-    M5Cardputer.Speaker.setVolume(_muted ? 0 : (_volume * 10 / 4));
+    // M5.Speaker applies master_volume *squared* (a perceptual curve, see
+    // Speaker_Class.cpp: `volume = magnification * master * master`). The old
+    // flat `_volume*10/4` ignored that: at a normal setting the squared gain was
+    // a few percent of full-scale, so the signal lived in the bottom ~3 bits and
+    // sounded thin/noisy; cranked up it clipped at INT16 instead.
+    //
+    // Pre-compensate by mapping the 0–21 user range through sqrt → master. The
+    // square inside M5 then cancels it, giving loudness that's ~linear in the
+    // setting while keeping the digital level (and resolution) as high as the
+    // target loudness allows. _volCeiling caps the top below the clip point.
+    uint8_t master = 0;
+    if (!_muted && _volume > 0) {
+        float f = sqrtf((float)_volume / 21.0f);          // 0..1, perceptual-linear
+        master = (uint8_t)(f * (float)_volCeiling + 0.5f);
+        if (master < 1) master = 1;
+    }
+    M5Cardputer.Speaker.setVolume(master);
 }
 
 // ── Progress ─────────────────────────────────────────────────────────────────
@@ -400,6 +430,12 @@ void AudioEngine::registerConsole() {
         auto& e = AudioEngine::instance();
         if (argc >= 2) e.setVolume((uint8_t)atoi(argv[1]));
         out.printf("vol=%u\n", e.volume());
+    });
+    con.registerCommand("gain", "gain [16-160] master cap", [](int argc, char** argv, Print& out) {
+        auto& e = AudioEngine::instance();
+        if (argc >= 2) e.setGainCeiling((uint8_t)atoi(argv[1]));
+        out.printf("gain ceiling=%u  master now=%u\n",
+                   e.gainCeiling(), M5Cardputer.Speaker.getVolume());
     });
     con.registerCommand("mute", "mute [on|off]", [](int argc, char** argv, Print& out) {
         auto& e = AudioEngine::instance();
