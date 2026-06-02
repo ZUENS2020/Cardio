@@ -13,6 +13,7 @@
 - [Cardio/ARCHITECTURE.md](Cardio/ARCHITECTURE.md) — 系统架构、数据流、状态机、SD 卡结构
 - [Cardio/PLAN.md](Cardio/PLAN.md) — 开发计划、代码量、里程碑、风险点
 - [Cardio/PLAN_UI_BLE.md](Cardio/PLAN_UI_BLE.md) — **UI 收尾 + BLE 通知直推 详细实施计划**（下一步）
+- [Cardio/PLAN_WM8960.md](Cardio/PLAN_WM8960.md) — 外接 WM8960 立体声 codec 实施计划（可选硬件增强，真立体声）
 - [Cardio/CLIENT_PLAN.md](Cardio/CLIENT_PLAN.md) — 三端客户端详细设计
 
 ---

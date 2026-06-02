@@ -237,6 +237,7 @@ wifi status/connect    rss refresh    rss list
 | 封面图（TJpgDec） | 2d |
 | 补画 8 个缺失图标（pause/prev/next/note/heart/phone/bell/list） | 0.5d |
 | ~~硬件 EQ（ES8311 DSP 寄存器）~~ → 已用**软件 5 段 IIR 均衡器**提前实现（`audio/Equalizer.cpp` + `ui/EqScreen.cpp`，`e` 键实时调，✅ 完成） | — |
+| 外接 WM8960 立体声 codec（EXT 排针，真立体声 + 耳放 + I2C 音量 + 插拔检测）→ 详细计划见 [PLAN_WM8960.md](PLAN_WM8960.md) | ~4d（可选硬件增强）|
 | NVS 断电续播 | 1d |
 | 省电息屏 + 低电警告 | 1d |
 | ~~自定义开屏动画（GIF/JPG）~~ → 已改**纯代码绘制**开屏（`ui/SplashScreen.cpp`，✅ 完成） | — |
