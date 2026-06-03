@@ -1,7 +1,7 @@
 # Cardio — 外接 WM8960 立体声 Codec 实施计划
 
 > **目标**：通过背后 **EXT 2.54-14P 排针**外接 Waveshare WM8960 Audio Board，拿到
-> **真·立体声 + 耳放 + I2C 硬件音量 + 插孔自动切换**，一次解决内部单声道硬件的三个痛点。
+> **真·立体声 + 耳放 + I2C 硬件音量 + 喇叭/耳机软切换**（这块板无插孔检测，故手动切换）。
 >
 > **设计原则**：可选、配置切换（`output=internal|wm8960`）。不接模块时默认走内部 ES8311
 > 单声道，固件照常工作；接了模块并改配置才启用外部立体声路径。两条路径共存、互不破坏。
@@ -28,13 +28,12 @@
 ```mermaid
 graph LR
     DEC[解码器 MP3/FLAC/WAV → PCM] --> EQ[Equalizer 立体声 process]
-    EQ --> OUT[AudioOutputWM8960I2S\nI2S_NUM_0: MCLK/BCLK/WS/DOUT]
+    EQ --> OUT[AudioOutputI2S 包装\nI2S_NUM_0: BCLK/WS/DOUT\nMCLK 板载 24MHz 自供]
     OUT --> WM[WM8960]
     WM --> HP[耳机 EARPHONE]
     WM --> SPK[立体声喇叭 SPK]
     CFG[(config output=)] -.选后端.-> OUT
-    AE[AudioEngine 音量] -.I2C 寄存器.-> WM
-    WM -.插孔检测.-> AE
+    AE[AudioEngine 音量 + 喇叭/耳机切换] -.I2C 寄存器.-> WM
 ```
 
 对比当前 internal 路径：解码 → Equalizer **(L+R)/2 单声道** → AudioOutputM5Speaker → ES8311。
@@ -43,23 +42,30 @@ graph LR
 
 ## 1. 硬件接线（EXT 排针）
 
-WM8960 需要 **MCLK**（它的 SYSCLK 靠 MCLK 提供，不像 PCM5102A 能免 MCLK）→ I2S 共 **4 根**信号。
+> 以下据 **官方原理图实测**（`WM8960_Audio_Board_Schematic.pdf`）。
 
-| WM8960 模块脚 | 接到 Cardputer | 说明 |
-|---|---|---|
-| VCC | EXT **3V3**（或 5V） | 3.3V 跑 codec + 耳机足矣；要满血 1W 喇叭则给 SPKVDD **5V**（EXT 有 5V）|
-| GND | EXT GND | |
-| **SDA** | **G8**（共享 I2C SDA） | 与键盘/IMU 同总线，WM8960@0x1A 不冲突 |
-| **SCL** | **G9**（共享 I2C SCL） | |
-| **MCLK** | 空闲 GPIO（建议 **G4**） | **必须**：ESP32 输出 256×fs 给 WM8960 当 SYSCLK |
-| **BCLK**（板上 CLK） | 空闲 GPIO（建议 **G5**） | 位时钟 |
-| **LRCK / WS** | 空闲 GPIO（建议 **G6**） | 帧时钟 |
-| **DACDAT**（板上 TXSDA） | 空闲 GPIO（建议 **G13**） | 放音数据 ESP→WM8960 |
-| ADCDAT（RXSDA） | 可不接 | 仅录音用 |
+✅ **关键好消息：板上有 24MHz 有源晶振（XTAL1，EN 常开，OUT→I2S_MCLK），自给 WM8960 MCLK，
+所以 ESP32 _不需要_ 输出 MCLK** —— I2S 只要 **3 根**（BCLK/LRCK/DACDAT），和 PCM5102A 一样。
 
-> ⚠️ **避开 G3**（strapping 脚）。以上 G4/G5/G6/G13 来自 EXT 引出的 G3/G4/G5/G6/G13/G15，
-> 最终以 **EXT 丝印 / 官方 pinmap 为准**；ESP32-S3 GPIO 矩阵可任意改映射。
-> Waveshare 板的 EARPHONE / SPK 口板载，HP 插孔检测应已接到 WM8960 GPIO1（购板后确认）。
+主接口是 **P2（Header 8X2，16 针）**；放音从这几针接（每个信号在两列都有，任选一边）：
+
+| P2 针 | 信号 | 接到 Cardputer | 说明 |
+|---|---|---|---|
+| 1 / 2 | VCC_3V3 | EXT **3V3** | ⚠️ **只接 3.3V，别接 5V**：板上是 VCC_3V3，晶振+codec 最高 3.6V，5V 会烧 |
+| 4 / 15 | GND | EXT GND | |
+| **3** | I2C_SDA | **G8** | 与键盘/IMU 共总线，WM8960@0x1A 不冲突 |
+| **5** | I2C_SCL | **G9** | |
+| **7**（或 10）| I2S_CLK（BCLK）| 空闲 GPIO | 位时钟 |
+| **9**（或 12）| I2S_LRCLK | 空闲 GPIO | 帧时钟 |
+| **11** | I2S_DAC（DACDAT）| 空闲 GPIO | 放音数据 ESP→WM8960 |
+| — | MCLK | **不接** | 板载 24MHz 有源晶振自供（这是它能用在树莓派上的原因）|
+| 14 | I2S_ADC | 录音才接 | 本期不用 |
+
+另外 **P1（Header 3）= MCLK_TX / I2S_MCLK / MCLK_RX**（就是你看到的 TX/MCLK/RX 三个焊盘，
+全是 MCLK 相关，自供 MCLK 时**用不到**）。耳机插板上 **EARPHONE** 口；喇叭接 **SPK**（白色 JST，LP/LN/RP/RN）。
+
+> ⚠️ 信号 GPIO 从 EXT 的 G4/G5/G6/G13/G15 里挑 3 个（**避开 G3** strapping），以 EXT 丝印为准；
+> ESP32-S3 GPIO 矩阵可任意映射。喇叭功放供电也在 VCC_3V3（3.3V → 约 0.4W，本板无法单独喂 5V）。
 
 ---
 
@@ -74,28 +80,28 @@ AudioGeneratorXXX → out`），只换最后的 `out`：
 | `internal`（默认）| `AudioOutputM5Speaker` | ES8311 单声道，sqrt 音量曲线，(L+R)/2 下混（现状）|
 | `wm8960` | `AudioOutputWM8960I2S`（新）| WM8960 立体声，I2C 硬件音量，**不下混** |
 
-### 2.2 `AudioOutputWM8960I2S`（新类，audio/）
-- 继承 ESP8266Audio 的 `AudioOutput`（与现有 `AudioOutputM5Speaker` 同套桥接模式）
-- **底层用 ESP-IDF `i2s_std` 驱动**（I2S_NUM_0）做 **master**，显式配 **MCLK 引脚 + 256×fs**
-  - 为什么自写而不直接用 ESP8266Audio 的 `AudioOutputI2S`：1.9.7 的 `AudioOutputI2S` 在 S3 上
-    **MCLK 输出支持不确定**，而 WM8960 必须有 MCLK。自写 IDF I2S 类对 MCLK/引脚/采样率完全可控。
-    （可先试 `AudioOutputI2S` + `SetPinout`，若 MCLK 出不来再落地自写类。）
-- `ConsumeSample(s[2])`：`Equalizer::instance().process(s)`（**立体声，L/R 各自滤波**）→ 写 L,R 进 DMA
-- `SetRate(hz)`：重配 I2S 时钟（含 MCLK=256·hz）+ 写 WM8960 采样率分频寄存器
-- `begin/stop/flush`：DMA 起停 + 防 pop
+### 2.2 I2S 输出（直接用 ESP8266Audio `AudioOutputI2S`）
+- 板子自供 MCLK（24MHz 晶振），ESP32 只需作 I2S **master** 输出 BCLK/LRCK/DOUT、**无需 MCLK 引脚**
+  → **直接用 ESP8266Audio 现成的 `AudioOutputI2S`**（`SetPinout(bclk, lrck, dout)`，端口 I2S_NUM_0）。
+  原计划最大的不确定性（自写 IDF i2s_std 配 MCLK）**就此砍掉**。
+- 立体声 EQ：薄薄包一层 `AudioOutput` 子类，`ConsumeSample(s[2])` 里先 `Equalizer::process(s)`
+  （**立体声，L/R 各自滤波，不下混**）再转调内部的 `AudioOutputI2S`（或直接 `i2s_write`）。改动很小。
+- `SetRate(hz)`：转调 AudioOutputI2S 的 SetRate + 写 WM8960 采样率/ PLL 寄存器（见 2.3）。
+- WM8960 作 I2S **slave**：用板载 24MHz 作 SYSCLK + 内部 PLL 锁到 BCLK/LRCK 的采样率（I2C 配）。
 
 ### 2.3 WM8960 I2C 驱动（audio/WM8960.h/cpp）
 - **移植 SparkFun WM8960 Arduino 库**（纯 I2C，用现有 `Wire` / G8-G9），或抽最小初始化序列
 - 初始化寄存器序列（要点）：
   1. R15 复位
   2. 电源：R25/R26/R47 → 使能 VREF、DACL/R、LOUT1/ROUT1(耳放)、SPKL/R(喇叭)
-  3. 时钟：R4 SYSCLK=MCLK，R8 设 DAC 采样率分频（对应 256×fs）
+  3. 时钟：**MCLK = 板载 24MHz** → 开 **PLL**（R52-R57）把 24MHz 倍频到目标采样率所需 SYSCLK，
+     R4 选 SYSCLK=PLL 输出、R8 设分频（如 44.1k/48k）。SparkFun/Waveshare 驱动有现成时钟表
   4. 接口：R7 → I2S 格式、16-bit、**slave**
   5. R5 DAC 取消静音；R10/R11 DAC 音量
   6. 输出 mixer：R34/R37 把 DAC 路由到耳机 + 喇叭
   7. 耳机音量 R2/R3（LOUT1/ROUT1）
   8. Class-D 喇叭：R40 使能、R51 音量
-  9. 插孔检测：R23/R24 + GPIO1 配置（自动切换）
+  9. 喇叭/耳机使能由软件切（本板无插孔检测，见 §2.6）——按需 enable LOUT1/ROUT1 与/或 SPK
   10. 防 pop 上电时序
 - 库方法对应：`enableDAC / enableHeadphones / setHeadphoneVolume / enableSpeakers /
   setSpeakerVolume / enableJackDetect …`
@@ -160,11 +166,11 @@ AudioGeneratorXXX → out`），只换最后的 `out`：
 
 | 风险 | 等级 | 缓解 |
 |---|---|---|
-| ESP32-S3 MCLK 输出 / ESP8266Audio 支持不明 | **中-高** | 自写 IDF `i2s_std` 输出类，显式配 MCLK 引脚 + 256×fs |
-| WM8960 初始化时序（pop / 时钟选择）finicky | 中 | 照 SparkFun 库移植，按手册防 pop 序列 |
-| I2C 与键盘/IMU 共总线时序 | 低 | I2C 仲裁；WM8960 配置只在 begin 做，运行期仅偶发音量/插拔写 |
+| ~~ESP32-S3 MCLK 输出~~ | — | **已消除**：板载 24MHz 有源晶振自供 MCLK，ESP32 无需输出 → 直接用 `AudioOutputI2S` |
+| WM8960 PLL/时钟配置（24MHz→采样率）| 中 | 照 SparkFun/Waveshare 驱动的时钟表移植；按手册防 pop 序列 |
+| I2C 与键盘/IMU 共总线时序 | 低 | I2C 仲裁；WM8960 配置只在 begin 做，运行期仅偶发音量写 |
 | EXT 实际引脚映射与建议不符 | 低 | 按 EXT 丝印 / 官方 pinmap 核对后再焊；GPIO 矩阵可改 |
-| 喇叭满 1W 需 5V | 低 | SPKVDD 供 5V；只用耳机则 3.3V 即可 |
+| ⚠️ 误供 5V 烧板 | 中 | 板上是 VCC_3V3（晶振+codec ≤3.6V）→ **必须接 3.3V**，别接 EXT 的 5V |
 | Waveshare 板**无插孔检测**（已确认，wiki/issue #9）| 低 | 默认软件手动切换（§2.6 方案 A）；要自动则外加带开关 3.5 座 → GPIO + 复用 JackMonitor（方案 B）|
 
 ---
@@ -174,17 +180,17 @@ AudioGeneratorXXX → out`），只换最后的 `out`：
 | 阶段 | 工期 |
 |---|---|
 | 硬件接线 + WM8960 I2C 驱动（出测试音）| 1–1.5d |
-| AudioOutputWM8960I2S + MCLK 时钟 | 1–1.5d |
+| I2S 输出（AudioOutputI2S + EQ 包装层，无 MCLK 省事）| 0.5–1d |
 | 后端切换 + 立体声 EQ + I2C 音量 + 喇叭/耳机切换 | 1d |
 | 联调 + A/B | 0.5d |
-| **合计** | **~4 工作日** |
+| **合计** | **~3–3.5 工作日**（MCLK 自供省了约半天）|
 
 ---
 
 ## 8. 改动清单（与现有代码的关系）
 
 **新增**
-- `audio/AudioOutputWM8960I2S.h/cpp` — I2S_NUM_0 立体声输出（IDF i2s_std + MCLK）
+- `audio/AudioOutputWM8960I2S.h/cpp` — I2S_NUM_0 立体声输出（包 ESP8266Audio `AudioOutputI2S` + 插立体声 EQ；**无需 MCLK**）
 - `audio/WM8960.h/cpp` — I2C 寄存器驱动（或引入 SparkFun 库）
 - `audio/WM8960Pins.h` — EXT 引脚常量
 
