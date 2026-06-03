@@ -22,11 +22,15 @@
 
 ```
 Cardputer ADV/
-├── CLAUDE.md                      # 本文件
+├── README.md                      # 项目主页（功能 / 快速开始 / 操作 / 路线图）
+├── LICENSE                        # MIT
+├── CLAUDE.md                      # 本文件（开发工作区说明）
 ├── .gitignore
 ├── Cardio/
 │   ├── ARCHITECTURE.md
 │   ├── PLAN.md
+│   ├── PLAN_UI_BLE.md
+│   ├── PLAN_WM8960.md
 │   ├── CLIENT_PLAN.md
 │   │
 │   ├── firmware/                  # Arduino C++ 固件
