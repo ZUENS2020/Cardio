@@ -180,6 +180,7 @@ Cardputer ADV/
 | [PLAN_WM8960.md](Cardio/PLAN_WM8960.md) | 外接 WM8960 立体声 codec 实施计划 |
 | [CLIENT_PLAN.md](Cardio/CLIENT_PLAN.md) | Android / macOS / Windows 客户端设计 |
 | [sdcard/README.md](Cardio/sdcard/README.md) | SD 卡准备与 config.txt 字段说明 |
+| [docs/references/REFERENCES.md](Cardio/docs/references/REFERENCES.md) | 数据手册 / 原理图 / 库 离线资料库 + 索引 |
 
 ---
 

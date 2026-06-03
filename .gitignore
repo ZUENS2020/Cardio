@@ -30,3 +30,7 @@ node_modules/
 *.env.local
 /Cardio/tools/splash-animation
 /.agents
+
+# 参考资料库（厂商版权 PDF，本地保留、不入库；下载链接见 REFERENCES.md）
+Cardio/docs/references/datasheets/*.pdf
+Cardio/docs/references/schematics/*.pdf
