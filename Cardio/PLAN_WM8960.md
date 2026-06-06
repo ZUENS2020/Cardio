@@ -47,25 +47,29 @@ graph LR
 ✅ **关键好消息：板上有 24MHz 有源晶振（XTAL1，EN 常开，OUT→I2S_MCLK），自给 WM8960 MCLK，
 所以 ESP32 _不需要_ 输出 MCLK** —— I2S 只要 **3 根**（BCLK/LRCK/DACDAT），和 PCM5102A 一样。
 
-主接口是 **P2（Header 8X2，16 针）**；放音从这几针接（每个信号在两列都有，任选一边）：
+主接口是 WM8960 板的 **P2（Header 8X2，16 针）**，接到 Cardputer 的 **EXT(P3)** 对应针（GPIO 据
+`Sch_M5CardputerAdv_v1.0.pdf` 实测）：
 
-| P2 针 | 信号 | 接到 Cardputer | 说明 |
-|---|---|---|---|
-| 1 / 2 | VCC_3V3 | EXT **3V3** | ⚠️ **只接 3.3V，别接 5V**：板上是 VCC_3V3，晶振+codec 最高 3.6V，5V 会烧 |
-| 4 / 15 | GND | EXT GND | |
-| **3** | I2C_SDA | **G8** | 与键盘/IMU 共总线，WM8960@0x1A 不冲突 |
-| **5** | I2C_SCL | **G9** | |
-| **7**（或 10）| I2S_CLK（BCLK）| 空闲 GPIO | 位时钟 |
-| **9**（或 12）| I2S_LRCLK | 空闲 GPIO | 帧时钟 |
-| **11** | I2S_DAC（DACDAT）| 空闲 GPIO | 放音数据 ESP→WM8960 |
-| — | MCLK | **不接** | 板载 24MHz 有源晶振自供（这是它能用在树莓派上的原因）|
-| 14 | I2S_ADC | 录音才接 | 本期不用 |
+| WM8960 P2 针 → 丝印 | 信号 | → Cardputer EXT(P3) 针 / GPIO |
+|---|---|---|
+| 1 → VCC | 3.3V 电源 | ⚠️ **经 5V→3.3V LDO**（见下，**不可**直连 EXT 5V）|
+| 4,15 → GND | 地 | 13 → GND |
+| 3 → SDA | I2C 数据 | 11 → **G8**（与键盘/IMU 共总线，WM8960@0x1A 不冲突）|
+| 5 → SCL | I2C 时钟 | 10 → **G9** |
+| 7 → CLK | I2S BCLK | 2 → **G4** |
+| 9 → WS | I2S LRCK | 3 → **G6** |
+| 11 → TXSDA | I2S 放音数据 | 7 → **G5** |
+| — MCLK | 主时钟 | **不接**（板载 24MHz 晶振自供）|
+| 14 → RXSDA | I2S 录音 | 本期不用 |
 
-另外 **P1（Header 3）= MCLK_TX / I2S_MCLK / MCLK_RX**（就是你看到的 TX/MCLK/RX 三个焊盘，
-全是 MCLK 相关，自供 MCLK 时**用不到**）。耳机插板上 **EARPHONE** 口；喇叭接 **SPK**（白色 JST，LP/LN/RP/RN）。
-
-> ⚠️ 信号 GPIO 从 EXT 的 G4/G5/G6/G13/G15 里挑 3 个（**避开 G3** strapping），以 EXT 丝印为准；
-> ESP32-S3 GPIO 矩阵可任意映射。喇叭功放供电也在 VCC_3V3（3.3V → 约 0.4W，本板无法单独喂 5V）。
+> ⚠️ **供电是大坑**：EXT 排针**只有 5V（5VOUT，P3-12）、没有 3.3V**，而 WM8960 板是 3.3V
+> （5V 会烧晶振/codec）→ **必须加一颗 5V→3.3V LDO（AMS1117-3.3）**。别把 EXT 的 5V 直连 WM8960 VCC。
+>
+> **GPIO 选择**：BCLK=G4 / LRCK=G6 / DACDAT=G5，**避开 G40/G14/G39（SD 卡 SPI，固件在用）与 G3（strapping）**。
+>
+> 🔌 一块"夹中间直插、含 LDO"的**转接板设计**（EXT 完整定义 + 原理图 + 网表 + BOM + 投板注意）见
+> **[docs/hardware/wm8960-adapter/](docs/hardware/wm8960-adapter/README.md)**——不想飞线就照它打板。
+> WM8960 板的 P1（3 针 TX/MCLK/RX）是 MCLK 引出，自供时用不到；耳机插板上 EARPHONE，喇叭接 SPK。
 
 ---
 

@@ -48,7 +48,7 @@
 - ⚙️ UI 收尾：SettingsScreen、PairingScreen、NoticeScreen、补全图标
 - 📡 WiFi + RSS 拉取
 - 📱 Android 客户端（通知监听 + BLE 推送）
-- 🎧 外接 **WM8960** 立体声 codec（真立体声 + 耳放 + 硬件音量 + 喇叭/耳机切换）
+- 🎧 外接 **PCM5102A** 立体声 DAC（真立体声、飞线直连、无 I2C；见 [接线文档](Cardio/docs/hardware/pcm5102-dac/README.md)。WM8960 为备选）
 - ☁️ 服务端（MQTT + FastAPI）—— 后续迭代
 
 ---

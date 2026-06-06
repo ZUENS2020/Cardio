@@ -17,7 +17,8 @@
 | `ESP32-S3_TRM.pdf` | 技术参考手册（I2S/外设寄存器，~15MB）| 音频 I2S、外设 | [Espressif](https://www.espressif.com/sites/default/files/documentation/esp32-s3_technical_reference_manual_en.pdf) |
 | `TCA8418_keyboard_controller.pdf` | I2C 键盘矩阵控制器 | 键盘输入（ADV 专有）| [TI](https://www.ti.com/lit/ds/symlink/tca8418.pdf) |
 | `ES8311_codec.pdf` | 内置**单声道** codec | 内部音频路径 | [Everest](http://www.everest-semi.com/pdf/ES8311%20PB.pdf) |
-| `WM8960_codec.pdf` | 立体声 codec（外接方案芯片）| [PLAN_WM8960](../../PLAN_WM8960.md) | Cirrus/Wolfson（[NXP 镜像](https://community.nxp.com/pwmxy87654/attachments/pwmxy87654/imx-processors/52419/1/WM8960.pdf)）|
+| `WM8960_codec.pdf` | 立体声 codec（外接方案-备选）| [PLAN_WM8960](../../PLAN_WM8960.md) | Cirrus/Wolfson（[NXP 镜像](https://community.nxp.com/pwmxy87654/attachments/pwmxy87654/imx-processors/52419/1/WM8960.pdf)）|
+| `PCM5102A_datasheet.pdf` | 立体声 I2S **DAC**（外接方案-**当前选用**，无 I2C）| [pcm5102-dac](../hardware/pcm5102-dac/README.md) | [TI](https://www.ti.com/lit/ds/symlink/pcm5102a.pdf) |
 | *(链接only)* NS4150B | 内置单声道 D 类功放 | 内部音频路径 | [datasheet4u](https://datasheet4u.com/datasheets/Nsiway/NS4150B/1544751)（自动下载被挡，手动下）|
 
 ## 📐 原理图（`schematics/`）

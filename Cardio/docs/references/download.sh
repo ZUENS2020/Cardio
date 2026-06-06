@@ -21,6 +21,7 @@ dl "https://www.espressif.com/sites/default/files/documentation/esp32-s3_technic
 dl "https://www.ti.com/lit/ds/symlink/tca8418.pdf"                                                          datasheets/TCA8418_keyboard_controller.pdf
 dl "http://www.everest-semi.com/pdf/ES8311%20PB.pdf"                                                        datasheets/ES8311_codec.pdf
 dl "https://community.nxp.com/pwmxy87654/attachments/pwmxy87654/imx-processors/52419/1/WM8960.pdf"          datasheets/WM8960_codec.pdf
+dl "https://www.ti.com/lit/ds/symlink/pcm5102a.pdf"                                                         datasheets/PCM5102A_datasheet.pdf
 
 echo "== 原理图 =="
 dl "$M5/1178/Sch_M5CardputerAdv_v1.0_2025_06_20_17_19_58.pdf" schematics/Sch_M5CardputerAdv_v1.0.pdf
