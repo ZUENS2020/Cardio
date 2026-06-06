@@ -23,3 +23,5 @@ default_volume=15
 default_order=sequential
 mute=false            # true=开机静音（教室调试用）；运行时按 m 键切换
 eq=0,0,0,0,0          # 均衡器 5 段增益 dB（100/300/1k/3k/8k），±12；按 e 进界面实时调
+audio_output=internal # internal=内置 ES8311 单声道 | pcm5102=外接 PCM5102A 立体声 DAC（EXT G4/G6/G5）
+                      #   接好 DAC 后改 pcm5102；控制台 `out pcm5102` 可不重启临时切换

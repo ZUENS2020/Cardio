@@ -44,6 +44,7 @@ public:
     const String& defaultOrder()  const { return _defaultOrder; }
     bool          muted()         const { return _mute; }  // boot silent (classroom)
     const String& eqGains()       const { return _eq; }    // CSV of 5 per-band dB, e.g. "0,3,-2,0,5"
+    const String& audioOutput()   const { return _audioOut; } // "internal" (ES8311 mono) | "pcm5102" (EXT I2S stereo)
 
     // ── 通用字符串接口（控制台 / 设置页）────────────────────────────────
     String get(const String& key) const;          // 未知键返回 ""
@@ -72,4 +73,5 @@ private:
     String _defaultOrder = "sequential";
     bool   _mute = false;
     String _eq = "0,0,0,0,0";
+    String _audioOut = "internal";
 };

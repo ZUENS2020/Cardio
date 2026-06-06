@@ -79,22 +79,26 @@ GY-PCM5102 背面有 **4 组焊桥**，标 `H 1 L / H 2 L / H 3 L / H 4 L`（每
 
 ---
 
-## 3. 固件需要改的地方
+## 3. 固件实现（已完成 ✅）
 
-当前固件音频链是 `解码 → EQ →(L+R)/2 下混 → M5.Speaker(ES8311)`。
-换 PCM5102 后改成 `解码 → EQ(左右各一路) → AudioOutputI2S → PCM5102`：
+实现方式不是另起 `AudioOutputI2S`，而是**复用现有 `M5.Speaker` 整条管线**（三缓冲 +
+core0 喂数任务 + playRaw + 音量曲线 + EQ 钩子），只把它的 **I2S 引脚从内置 ES8311
+（端口1 / G41/43/42）重定向到 EXT 的 G4/G6/G5**，并关掉单声道下混。改动点：
 
-| 项 | 现状（ES8311 内置）| 改成（PCM5102 外接）|
-|---|---|---|
-| 输出对象 | `AudioOutputM5Speaker`（桥接 M5.Speaker）| **`AudioOutputI2S`**（ESP8266Audio 自带），I2S0，pins BCLK=G4/LRCK=G6/DOUT=G5，**无 MCLK** |
-| 声道 | (L+R)/2 **下混单声道** | **去掉下混，真立体声**，左右各送 |
-| EQ | 只滤一路 | 左右**各跑一遍**（算力 ×2，S3 够用）|
-| 音量 | sqrt 预补偿（抵消 M5.Speaker 平方）| **改回线性/感知曲线**——PCM5102 无平方、无硬件音量寄存器，音量纯数字乘在 PCM 上（`AudioOutputI2S::SetGain` 或 DSP 里乘）|
-| I2C | — | 不用（PCM5102 无控制口）|
+| 项 | 内置（`internal`）| 外接（`pcm5102`）| 代码 |
+|---|---|---|---|
+| I2S 引脚 | ES8311 端口1 G41/43/42 | **BCK=G4 / LRCK=G6 / DATA=G5，无 MCLK** | `AudioEngine::routeSpeaker()` |
+| 声道 | (L+R)/2 下混单声道 | **真立体声**，左右独立 | `AudioOutputM5Speaker::setStereo()` |
+| EQ | `processMono()` 滤一路 | `process()` 左右**各一路**（独立 biquad 状态）| `Equalizer` |
+| 音量 | sqrt 预补偿 | **照旧 sqrt**——仍走 M5.Speaker，其内部平方还在，曲线不变 | `applyHwVolume()` |
+| ES8311 | 工作 | 空闲（仍挂 I2C，无害）| — |
 
-> 详细落地（任务拆分、内存预算、回退到内置 codec 的开关）写在
-> [PLAN_WM8960.md](../../PLAN_WM8960.md) 的"外接 DAC"章节，按本表替换芯片即可——
-> PCM5102 比 WM8960 还少了"I2C 寄存器初始化"一整段。
+**怎么启用**（不必改代码）：
+
+- SD `config.txt` 设 **`audio_output=pcm5102`**（默认 `internal`，没接 DAC 时照常用内置喇叭）。
+- 或控制台**临时切换**不重启：`out pcm5102` / `out internal`（`config save` 才持久化）。
+
+> 设计成开关 + 默认 `internal`：DAC 没接线时设备不会变哑；`out` 命令方便 A/B 对比内置单声道 vs 外接立体声。
 
 ---
 

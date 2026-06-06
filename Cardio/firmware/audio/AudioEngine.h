@@ -40,9 +40,16 @@ public:
 
     void registerConsole();
 
+    // Switch the I2S route live: false → internal ES8311 mono, true → external
+    // PCM5102A stereo (EXT G4/G6/G5). Stops playback and re-installs the I2S
+    // driver. Returns the resulting mode. Persist with `config set audio_output`.
+    void setOutputExternal(bool ext);
+    bool outputExternal() const { return _ext; }
+
 private:
     AudioEngine() = default;
 
+    void routeSpeaker(bool ext);   // (re)configure M5.Speaker I2S pins + stereo
     void applyHwVolume();   // push _volume (or 0 if muted) to the speaker
 
     struct Impl;
@@ -50,6 +57,7 @@ private:
     uint8_t  _volume     = 15;
     uint8_t  _volCeiling = 80;   // master_volume cap at user-max; tunable via `gain` console cmd
     bool     _muted      = false;
+    bool     _ext        = false;   // true = external PCM5102A stereo route
     bool     _paused  = false;
     uint32_t _startMs  = 0;
     uint32_t _pausedMs = 0;

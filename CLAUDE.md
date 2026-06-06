@@ -42,7 +42,7 @@ Cardputer ADV/
 │   │   │   └── DebugConsole.h/cpp # 串口/BLE 调试控制台
 │   │   ├── audio/
 │   │   │   ├── AudioEngine.h/cpp            # 解码 + sqrt 音量曲线 + 44.1k 原生输出
-│   │   │   ├── AudioOutputM5Speaker.h/cpp  # 三缓冲零拷贝桥接 M5.Speaker + (L+R)/2 单声道下混
+│   │   │   ├── AudioOutputM5Speaker.h/cpp  # 三缓冲零拷贝桥接 M5.Speaker；setStereo() 切 (L+R)/2 单声道下混(内置) / 真立体声(外接 PCM5102A)
 │   │   │   ├── Equalizer.h/cpp             # 5 段 peaking 双二阶 IIR 均衡器（实时，全平时旁路）
 │   │   │   └── JackMonitor.h/cpp
 │   │   ├── player/
@@ -172,6 +172,7 @@ heap            # 内存使用
 vol 12          # 音量 0-21（sqrt 曲线映射到 master）
 gain 80         # master 音量上限（破音调小，太轻调大；默认 80）
 eq 0 6          # 均衡器：第 0 段(100Hz) +6dB；eq flat 清平；eq show 查看
+out pcm5102     # 切到外接 PCM5102A 立体声 DAC（out internal 回内置单声道；持久化用 config set audio_output）
 mute on         # 静音（教室用，不丢音量值）
 launcher        # 重启回 bmorcelli Launcher（无 Launcher 时空操作）
 wifi status     # 网络状态
@@ -266,6 +267,7 @@ curl -X POST http://localhost:8000/notify \
 - **不用** ESP32-audioI2S（不配 ES8311 寄存器，且新版依赖 IDF5）
 - **输出端配置**（`AudioEngine::begin()`）：原生 **44.1kHz**（多数 rip 是 CD 率，M5 重采样器 1:1 直通免插值损失）、`dma_buf_len=512`（扛住刷屏 `pushSprite` 的 20-30ms 卡顿，不爆破音）、I2S 喂数任务钉 **core 0**（解码在 core 1 的 Arduino loop，两核分离互不饿死）。早期写的"96kHz stereo / PWM"已过时。
 - **单声道硬件（已核实）**：ES8311 是**单 DAC 单声道 codec** + NS4150B 单声道功放 + 1 个 8Ω@1W 喇叭，耳机口经机械开关**共用这一路** → **左右声道在硬件层无法分开**，任何固件都变不出立体声。固件在 `AudioOutputM5Speaker::ConsumeSample` 里做 **(L+R)/2 下混**再输出（否则单声道 codec 默认只取左声道，会丢掉右声道独奏的内容），EQ 也只滤这一路省一半算力。
+- **外接立体声（PCM5102A，已实现，可选）**：config `audio_output=pcm5102`（或控制台 `out pcm5102`）把 `M5.Speaker` 的 I2S 从内置 ES8311（端口1/G41/43/42）**重定向到 EXT 的 BCK=G4/LRCK=G6/DATA=G5、无 MCLK**（`AudioEngine::routeSpeaker()`，`Speaker.begin()` 会重装 I2S 驱动），并 `setStereo(true)` 关掉下混走真立体声、EQ 左右各滤一路。**仍复用 M5.Speaker 管线**，所以平方音量曲线在 → sqrt 预补偿照旧。默认 `internal`，没接 DAC 不影响内置喇叭。接线/跳线见 [docs/hardware/pcm5102-dac/README.md](Cardio/docs/hardware/pcm5102-dac/README.md)。待实机验证。
 - **音量曲线**：M5.Speaker 内部把 master_volume **平方**使用（`Speaker_Class.cpp`: `volume = magnification * master * master`）。所以 `applyHwVolume()` 用 **sqrt 预补偿**（`master = √(vol/21) * _volCeiling`）抵消它，使 0-21 档听感线性、数字电平（位深）尽量顶高；`_volCeiling` 默认 80，`gain` 命令可现场调（破音调小 / 太轻调大）。**别用线性映射 `_volume*k`**——平方后会把位深压到最低几 bit，发薄发糊发噪。
 - **均衡器**：5 段 peaking 双二阶 IIR（`audio/Equalizer.cpp`，RBJ 公式 + DF2T 结构），频段 100/300/1k/3k/8k Hz，每段 ±12dB，**全 0dB 时整级旁路零开销**。插在 `ConsumeSample`（core 1，与解码同任务，无需加锁）；跟轨采样率自动重算系数；存 config `eq=` 键；播放器按 `e` 进 `EqScreen` 方向键实时调（`,/`选段 `;.`增益 `0`归零 `Del`存盘返回）。
 - 支持格式：MP3 / FLAC / WAV（AAC / Opus 待实机确认；OGG Vorbis / M4A 无解码器，不支持）

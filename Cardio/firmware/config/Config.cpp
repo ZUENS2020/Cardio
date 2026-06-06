@@ -47,6 +47,7 @@ void Config::applyDefaults() {
     _defaultOrder = "sequential";
     _mute = false;
     _eq = "0,0,0,0,0";
+    _audioOut = "internal";
 }
 
 bool Config::begin() {
@@ -104,6 +105,7 @@ String Config::get(const String& k) const {
     if (k == "default_order") return _defaultOrder;
     if (k == "mute")          return _mute ? "true" : "false";
     if (k == "eq")            return _eq;
+    if (k == "audio_output")  return _audioOut;
     return "";
 }
 
@@ -146,6 +148,10 @@ bool Config::set(const String& k, const String& v) {
     }
     if (k == "mute") { if (!parseBool(v, b)) return false; _mute = b; return true; }
     if (k == "eq")   { _eq = v; return true; }   // Equalizer parses/clamps the CSV defensively
+    if (k == "audio_output") {
+        if (v == "internal" || v == "pcm5102") { _audioOut = v; return true; }
+        return false;
+    }
     return false;
 }
 
@@ -178,6 +184,8 @@ bool Config::save() {
     f.printf("default_order=%s\n", _defaultOrder.c_str());
     f.printf("mute=%s\n", _mute ? "true" : "false");
     f.printf("eq=%s\n", _eq.c_str());
+    // internal = 内置 ES8311 单声道；pcm5102 = 外接 PCM5102A 立体声 DAC（EXT G4/G6/G5）
+    f.printf("audio_output=%s\n", _audioOut.c_str());
     f.close();
     LOG_I("CFG", "saved to %s", CONFIG_PATH);
     return true;

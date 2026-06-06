@@ -1,5 +1,6 @@
 #include "AudioEngine.h"
 #include "AudioOutputM5Speaker.h"
+#include "Config.h"
 #include <M5Cardputer.h>
 #include <AudioFileSourceSD.h>
 #include <AudioFileSourceID3.h>
@@ -65,6 +66,22 @@ void AudioEngine::begin() {
     //    stalls without the DMA underrunning into clicks/gaps.
     //  • task_pinned_core 0: feed I2S on the PRO core while the decoder runs on
     //    the APP core (Arduino loop), so neither starves the other.
+    routeSpeaker(Config::instance().audioOutput() == "pcm5102");
+
+    setVolume(_volume);
+    LOG_I("AUDIO", "ready out=%s vol=%u heap=%u",
+          _ext ? "pcm5102(stereo)" : "internal(mono)", _volume, esp_get_free_heap_size());
+}
+
+// (Re)configure the M5.Speaker I2S route. M5.Speaker::begin() internally
+// uninstalls and re-installs the legacy I2S driver against the current config,
+// so overwriting the pins here and calling begin() is enough to move the bus.
+//   • internal: on-board ES8311 mono codec (M5Unified's default ADV pins).
+//   • pcm5102 : external GY-PCM5102A stereo DAC on the EXT header —
+//               BCK=G4, LRCK=G6, DATA=G5, no MCLK (DAC self-clocks via its PLL).
+//               ES8311 then sits idle (still on I2C, harmless).
+// See docs/hardware/pcm5102-dac/README.md.
+void AudioEngine::routeSpeaker(bool ext) {
     auto spk = M5Cardputer.Speaker.config();
     spk.stereo           = true;
     spk.sample_rate      = 44100;
@@ -72,11 +89,29 @@ void AudioEngine::begin() {
     spk.dma_buf_count    = 8;
     spk.task_priority    = 2;
     spk.task_pinned_core = 0;
+    if (ext) {
+        spk.pin_bck      = GPIO_NUM_4;   // EXT P3-2 → PCM5102 BCK
+        spk.pin_ws       = GPIO_NUM_6;   // EXT P3-3 → PCM5102 LCK (LRCK)
+        spk.pin_data_out = GPIO_NUM_5;   // EXT P3-7 → PCM5102 DIN
+        spk.pin_mck      = I2S_PIN_NO_CHANGE;
+    }
     M5Cardputer.Speaker.config(spk);
     M5Cardputer.Speaker.begin();
 
-    setVolume(_volume);
-    LOG_I("AUDIO", "ready vol=%u heap=%u", _volume, esp_get_free_heap_size());
+    _ext = ext;
+    if (_impl && _impl->out)
+        _impl->out->setStereo(ext); // true stereo on PCM5102, L+R fold on ES8311
+}
+
+// Live switch (console `out ...`). Stop playback, drop the I2S driver, re-route.
+// Caller should `config set audio_output ...; config save` to make it persist.
+void AudioEngine::setOutputExternal(bool ext) {
+    if (ext == _ext) return;
+    stop();
+    M5Cardputer.Speaker.end();   // release the current pins before re-pinning
+    routeSpeaker(ext);
+    applyHwVolume();             // master volume is per-Speaker; re-apply after begin
+    LOG_I("AUDIO", "output route -> %s", ext ? "pcm5102(stereo)" : "internal(mono)");
 }
 
 // Read the exact track length from a FLAC STREAMINFO block.
@@ -455,5 +490,15 @@ void AudioEngine::registerConsole() {
     });
     con.registerCommand("tone", "1kHz 500ms", [](int,char**,Print& out) {
         M5Cardputer.Speaker.tone(1000, 500); out.println("1kHz 500ms");
+    });
+    con.registerCommand("out", "out [internal|pcm5102]", [](int argc, char** argv, Print& out) {
+        auto& e = AudioEngine::instance();
+        if (argc >= 2) {
+            if      (!strcasecmp(argv[1], "pcm5102"))  e.setOutputExternal(true);
+            else if (!strcasecmp(argv[1], "internal")) e.setOutputExternal(false);
+            else { out.println("usage: out [internal|pcm5102]"); return; }
+            out.println("(persist with: config set audio_output <mode>; config save)");
+        }
+        out.printf("output=%s\n", e.outputExternal() ? "pcm5102(stereo)" : "internal(mono)");
     });
 }

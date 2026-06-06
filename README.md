@@ -48,7 +48,7 @@
 - ⚙️ UI 收尾：SettingsScreen、PairingScreen、NoticeScreen、补全图标
 - 📡 WiFi + RSS 拉取
 - 📱 Android 客户端（通知监听 + BLE 推送）
-- 🎧 外接 **PCM5102A** 立体声 DAC（真立体声、飞线直连、无 I2C；见 [接线文档](Cardio/docs/hardware/pcm5102-dac/README.md)。WM8960 为备选）
+- 🎧 外接 **PCM5102A** 立体声 DAC：固件已支持（`audio_output=pcm5102` 或控制台 `out pcm5102` 切换，真立体声、飞线直连、无 I2C；见 [接线文档](Cardio/docs/hardware/pcm5102-dac/README.md)），**待实机接线验证**。WM8960 为备选
 - ☁️ 服务端（MQTT + FastAPI）—— 后续迭代
 
 ---
@@ -126,7 +126,7 @@ USB 串口（115200）连接后可用，分组如下：
 | 类别 | 命令 |
 |---|---|
 | 播放 | `play <路径>` · `pause` · `resume` · `stop` · `next` · `prev` · `status` |
-| 音频 | `vol <0-21>` · `gain <16-160>` · `eq <段 增益>\|flat\|show` · `mute [on\|off]` · `tone` |
+| 音频 | `vol <0-21>` · `gain <16-160>` · `eq <段 增益>\|flat\|show` · `mute [on\|off]` · `out [internal\|pcm5102]` · `tone` |
 | 列表 | `list` · `playlist <n>` · `tracks` · `order <模式>` |
 | 系统 | `config get/set/save` · `log level <级别>` · `heap` · `jdet` · `launcher` · `reboot` · `help` |
 

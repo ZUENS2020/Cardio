@@ -22,9 +22,14 @@ public:
     bool SetChannels(int ch) override { channels = ch; return true; }
     bool SetBitsPerSample(int)       { return true; }
 
+    // true  → keep L/R separate (external PCM5102A stereo DAC)
+    // false → fold L+R to mono (internal ES8311 single-DAC codec, the default)
+    void setStereo(bool s) { _stereo = s; }
+
 private:
     m5::Speaker_Class* _spk;
     uint8_t  _ch;
+    bool     _stereo = false;
     int16_t* _buf[3]; // three heap-allocated half-buffers
     int      _wi;     // buffer index being written (0/1/2)
     size_t   _wv;     // values written so far in current buffer

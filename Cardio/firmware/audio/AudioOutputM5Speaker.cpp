@@ -31,6 +31,15 @@ bool AudioOutputM5Speaker::ConsumeSample(int16_t s[2]) {
         flush();
         return false; // generator retries this sample next loop()
     }
+    if (_stereo) {
+        // External PCM5102A: a true stereo I2S DAC. Keep L/R independent and
+        // EQ-filter each channel against its own biquad state (twice the work
+        // of mono, fine on the S3). Output is genuine stereo from the DAC jack.
+        Equalizer::instance().process(s); // filters s[0]=L, s[1]=R in place
+        _buf[_wi][_wv++] = s[0]; // L
+        _buf[_wi][_wv++] = s[1]; // R
+        return true;
+    }
     // The Cardputer ADV's ES8311 is a single-DAC *mono* codec; the speaker and the
     // 3.5mm jack share that one output (mechanical switch), so true stereo is
     // physically impossible. Fold L+R to a single mono sum (>>1 avoids overflow)
