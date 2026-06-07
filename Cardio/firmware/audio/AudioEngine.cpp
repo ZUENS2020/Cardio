@@ -8,6 +8,7 @@
 #include <AudioGeneratorFLAC.h>
 #include <AudioGeneratorWAV.h>
 #include <SD.h>
+#include <driver/gpio.h>
 #include "Logger.h"
 #include "DebugConsole.h"
 
@@ -82,6 +83,13 @@ void AudioEngine::begin() {
 //               ES8311 then sits idle (still on I2C, harmless).
 // See docs/hardware/pcm5102-dac/README.md.
 void AudioEngine::routeSpeaker(bool ext) {
+    // M5 Speaker::begin() early-returns when its task is already running, so a
+    // plain config()+begin() would silently keep the OLD pins/stereo (the I2S
+    // never gets re-installed). Force a full teardown first so the new route
+    // actually takes effect — this also makes audio_output=pcm5102 work from
+    // boot, not just via the live `out` command.
+    M5Cardputer.Speaker.end();
+
     auto spk = M5Cardputer.Speaker.config();
     spk.stereo           = true;
     spk.sample_rate      = 44100;
@@ -94,13 +102,31 @@ void AudioEngine::routeSpeaker(bool ext) {
         spk.pin_ws       = GPIO_NUM_6;   // EXT P3-3 → PCM5102 LCK (LRCK)
         spk.pin_data_out = GPIO_NUM_5;   // EXT P3-7 → PCM5102 DIN
         spk.pin_mck      = I2S_PIN_NO_CHANGE;
+    } else {
+        spk.pin_bck      = GPIO_NUM_41;  // on-board ES8311 (M5Unified ADV pins)
+        spk.pin_ws       = GPIO_NUM_43;
+        spk.pin_data_out = GPIO_NUM_42;
+        spk.pin_mck      = I2S_PIN_NO_CHANGE;
     }
     M5Cardputer.Speaker.config(spk);
     M5Cardputer.Speaker.begin();
 
+    if (ext) {
+        // The on-board ES8311 hangs off GPIO41/43/42. After the I2S bus has
+        // moved to the EXT pins, detach those so the codec stops receiving a
+        // clock — otherwise the internal speaker keeps playing in parallel.
+        gpio_reset_pin(GPIO_NUM_41);
+        gpio_reset_pin(GPIO_NUM_42);
+        gpio_reset_pin(GPIO_NUM_43);
+    }
+
     _ext = ext;
     if (_impl && _impl->out)
         _impl->out->setStereo(ext); // true stereo on PCM5102, L+R fold on ES8311
+
+    LOG_I("AUDIO", "route ext=%d stereo=%d bck=%d ws=%d dout=%d port=%d",
+          (int)ext, (int)spk.stereo, (int)spk.pin_bck, (int)spk.pin_ws,
+          (int)spk.pin_data_out, (int)spk.i2s_port);
 }
 
 // Live switch (console `out ...`). Stop playback, drop the I2S driver, re-route.
