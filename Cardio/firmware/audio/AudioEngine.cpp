@@ -92,7 +92,7 @@ void AudioEngine::routeSpeaker(bool ext) {
 
     auto spk = M5Cardputer.Speaker.config();
     spk.stereo           = true;
-    spk.sample_rate      = 44100;
+    spk.sample_rate      = _outRate;   // match the track rate → no M5 resampling
     spk.dma_buf_len      = 512;
     spk.dma_buf_count    = 8;
     spk.task_priority    = 2;
@@ -129,6 +129,19 @@ void AudioEngine::routeSpeaker(bool ext) {
           (int)spk.pin_data_out, (int)spk.i2s_port);
 }
 
+// Match the M5.Speaker output sample rate to the track so playRaw() passes the
+// PCM through 1:1 instead of linearly resampling it down to a fixed 44.1k (which
+// rolls off highs / adds aliasing on 48k/96k content). CD-rate tracks are
+// unaffected. Re-installs the I2S driver only when the rate actually changes.
+void AudioEngine::applyOutputRate(uint32_t hz) {
+    if (hz < 8000 || hz > 96000) return;   // ignore garbage / unsupported
+    if (hz == _outRate) return;
+    _outRate = hz;
+    routeSpeaker(_ext);   // re-setup I2S at the new rate (keeps pins/stereo)
+    applyHwVolume();      // master volume is per-Speaker; re-apply after begin
+    LOG_I("AUDIO", "output rate -> %u Hz", (unsigned)hz);
+}
+
 // Live switch (console `out ...`). Stop playback, drop the I2S driver, re-route.
 // Caller should `config set audio_output ...; config save` to make it persist.
 void AudioEngine::setOutputExternal(bool ext) {
@@ -146,7 +159,7 @@ void AudioEngine::setOutputExternal(bool ext) {
 // offset 10 sits a packed 64-bit field: sample_rate(20) | channels(3) |
 // bits_per_sample(5) | total_samples(36) — i.e. file bytes 18..25.
 // Returns 0 if the header can't be parsed (caller falls back to an estimate).
-static uint32_t flacDurationMs(const char* path) {
+static uint32_t flacDurationMs(const char* path, uint32_t* outRate = nullptr) {
     File f = SD.open(path);
     if (!f) return 0;
     uint8_t b[26];
@@ -162,6 +175,7 @@ static uint32_t flacDurationMs(const char* path) {
                           | ((uint32_t)b[23] << 16)
                           | ((uint32_t)b[24] << 8)
                           |  (uint32_t)b[25];
+    if (outRate && sampleRate) *outRate = sampleRate;
     if (sampleRate == 0 || totalSamples == 0) return 0;
     return (uint32_t)(totalSamples * 1000ULL / sampleRate);
 }
@@ -169,7 +183,7 @@ static uint32_t flacDurationMs(const char* path) {
 // Exact WAV length from the fmt + data chunk headers.
 // duration = data_chunk_bytes / byte_rate.  Handles arbitrary chunk ordering
 // and the word-alignment padding between chunks.  0 if it can't be parsed.
-static uint32_t wavDurationMs(const char* path) {
+static uint32_t wavDurationMs(const char* path, uint32_t* outRate = nullptr) {
     File f = SD.open(path);
     if (!f) return 0;
     uint8_t h[12];
@@ -185,6 +199,8 @@ static uint32_t wavDurationMs(const char* path) {
             uint8_t fmt[16];
             uint32_t want = csize < 16 ? csize : 16;
             if (f.read(fmt, want) != (int)want) break;
+            if (outRate && want >= 8)
+                *outRate = (uint32_t)fmt[4] | ((uint32_t)fmt[5] << 8) | ((uint32_t)fmt[6] << 16) | ((uint32_t)fmt[7] << 24);
             byteRate = (uint32_t)fmt[8] | ((uint32_t)fmt[9] << 8) | ((uint32_t)fmt[10] << 16) | ((uint32_t)fmt[11] << 24);
             uint32_t rest = csize - want + (csize & 1);
             if (rest) f.seek(f.position() + rest);
@@ -204,7 +220,7 @@ static uint32_t wavDurationMs(const char* path) {
 //   • VBR — reads the Xing/Info frame count → frames * samples_per_frame / rate
 //   • CBR — audio_bytes * 8 / bitrate
 // Far more accurate than a flat bytes/bitrate guess for VBR files.  0 on failure.
-static uint32_t mp3DurationMs(const char* path) {
+static uint32_t mp3DurationMs(const char* path, uint32_t* outRate = nullptr) {
     File f = SD.open(path);
     if (!f) return 0;
     uint32_t fileSize = f.size();
@@ -245,6 +261,7 @@ static uint32_t mp3DurationMs(const char* path) {
 
     bool isV1 = (versionBits == 3);
     int sampleRate = isV1 ? kSr1[srIndex] : (versionBits == 2 ? kSr2[srIndex] : kSr25[srIndex]);
+    if (outRate && sampleRate) *outRate = (uint32_t)sampleRate;
     int bitrate    = (isV1 ? kBr1[brIndex] : kBr2[brIndex]) * 1000; // bps
     int spf        = isV1 ? 1152 : 576;                              // samples per frame
 
@@ -293,13 +310,17 @@ bool AudioEngine::play(const char* path) {
     if (!_impl->src) { LOG_E("AUDIO", "SD src alloc failed"); return false; }
 
     const uint32_t sz = _impl->src->getSize();
+    uint32_t trackRate = 0;
     if (sz > 0) {
         uint32_t d = 0;
-        if      (strcasecmp(ext, "wav")  == 0) { d = wavDurationMs(path);  _impl->estDurMs = d ? d : (uint32_t)((uint64_t)sz * 1000 / 176400); }
-        else if (strcasecmp(ext, "flac") == 0) { d = flacDurationMs(path); _impl->estDurMs = d ? d : (sz / 50); }
-        else if (strcasecmp(ext, "mp3")  == 0) { d = mp3DurationMs(path);  _impl->estDurMs = d ? d : (sz / 24); }
+        if      (strcasecmp(ext, "wav")  == 0) { d = wavDurationMs(path,  &trackRate); _impl->estDurMs = d ? d : (uint32_t)((uint64_t)sz * 1000 / 176400); }
+        else if (strcasecmp(ext, "flac") == 0) { d = flacDurationMs(path, &trackRate); _impl->estDurMs = d ? d : (sz / 50); }
+        else if (strcasecmp(ext, "mp3")  == 0) { d = mp3DurationMs(path,  &trackRate); _impl->estDurMs = d ? d : (sz / 24); }
         else                                     _impl->estDurMs = sz / 24;
     }
+    // Match the I2S output clock to the track so M5 doesn't resample it (no-op
+    // when the rate is unchanged, e.g. consecutive 44.1k tracks).
+    if (trackRate) applyOutputRate(trackRate);
 
     // No AudioFileSourceBuffer — BrokenSignal reads SD directly for local files.
     // This saves 16 KB of contiguous heap that the MP3 decoder needs.

@@ -50,6 +50,7 @@ private:
     AudioEngine() = default;
 
     void routeSpeaker(bool ext);   // (re)configure M5.Speaker I2S pins + stereo
+    void applyOutputRate(uint32_t hz); // match I2S output rate to the track (no resample)
     void applyHwVolume();   // push _volume (or 0 if muted) to the speaker
 
     struct Impl;
@@ -58,6 +59,7 @@ private:
     uint8_t  _volCeiling = 80;   // master_volume cap at user-max; tunable via `gain` console cmd
     bool     _muted      = false;
     bool     _ext        = false;   // true = external PCM5102A stereo route
+    uint32_t _outRate    = 44100;   // current I2S output sample rate (matched per track)
     bool     _paused  = false;
     uint32_t _startMs  = 0;
     uint32_t _pausedMs = 0;

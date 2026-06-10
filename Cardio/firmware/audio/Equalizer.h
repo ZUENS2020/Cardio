@@ -63,9 +63,18 @@ private:
             _z2[b][ch]   = _bq[b].b2 * x - _bq[b].a2 * y;
             x = y;
         }
+        // TPDF dither (~±1 LSB triangular) + round-to-nearest requantize: the
+        // float→int16 step otherwise truncates, quantizing low-level detail into
+        // correlated distortion. Triangular dither decorrelates it (cost: a tiny
+        // constant noise floor). Only runs when EQ is active (the bypass path
+        // never requantizes).
+        _rng = _rng * 1664525u + 1013904223u;
+        float u = (float)(_rng >> 8) * (1.0f / 16777216.0f) - 0.5f;  // [-0.5,0.5)
+        x += u - _ditherPrev[ch];
+        _ditherPrev[ch] = u;
         if      (x >  32767.0f) x =  32767.0f;   // saturate, never wrap
         else if (x < -32768.0f) x = -32768.0f;
-        return (int16_t)x;
+        return (int16_t)lrintf(x);
     }
 
     void computeBand(int band);
@@ -77,4 +86,6 @@ private:
     int8_t   _db[NUM_BANDS];
     uint32_t _fs     = 44100;
     bool     _active = false;
+    uint32_t _rng    = 0x1234abcdu;  // dither PRNG state
+    float    _ditherPrev[2] = {0, 0};
 };
