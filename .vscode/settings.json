@@ -1,0 +1,6 @@
+{
+    "idf.currentSetup": "/Users/zuens2020/.espressif/v6.0.1/esp-idf",
+    "idf.openOcdConfigs": [
+        "board/esp32s3-builtin.cfg"
+    ]
+}
